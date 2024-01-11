@@ -1,0 +1,41 @@
+cabal-version:      3.0
+name:               daml-cucumber
+version:            0.1.0.0
+synopsis:           Cucumber testing with daml script
+description:        Parse cucumber tests and pass them to a daml script for execution
+homepage:           https://github.com/obsidiansystems/daml-cucumber
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Obsidian Systems LLC
+maintainer:         maintainer@obsidian.systems
+copyright:          2024 Obsidian Systems LLC
+category:           Testing
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+
+common warnings
+    ghc-options: -Wall
+
+library
+    import:           warnings
+    exposed-modules:  Daml.Cucumber
+    build-depends:    base >= 4.14 && < 5
+                    , abacate >= 0.0 && < 0.1
+                    , aeson
+                    , process
+                    , reflex
+                    , reflex-process
+                    , text
+    hs-source-dirs:   src
+    default-language: Haskell2010
+    default-extensions: DeriveGeneric
+
+executable daml-cucumber
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:
+        base,
+        daml-cucumber,
+        optparse-applicative
+    hs-source-dirs:   src-exe
+    default-language: Haskell2010

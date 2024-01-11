@@ -1,0 +1,151 @@
+module Cucumber where
+
+import DA.Exception
+import Daml.Script
+import Prelude hiding (Scenario)
+import DA.Text qualified as T
+
+data Scenario = Scenario
+  with
+    name : Text
+    steps : [Step]
+  deriving (Eq, Show)
+
+data Keyword = Given | When | Then | And | But
+  deriving (Eq, Show, Enum, Bounded)
+
+data Step = Step
+  with
+    keyword : Keyword
+    body : Text
+  deriving (Eq, Show)
+
+data Outline = Outline
+  with
+    examples : Examples
+    scenario : Scenario
+  deriving (Eq, Show)
+
+data Examples = Examples
+  with
+    name : Text
+    table : [[Text]]
+  deriving (Eq, Show)
+
+data Feature = Feature
+  with
+    name : Text
+    scenarios : [Scenario]
+    outlines : [Outline]
+  deriving (Eq, Show)
+
+data Message = Message
+  { scenario : Text
+  , step : Optional Step
+  , result : Optional (Either Text ())
+  }
+  deriving (Eq, Show)
+
+type Hash = Text
+type ScenarioName = Text
+
+-- | Note that tests can fail in un-catchable ways, so we may not be able to --
+-- continue.  This doesn't support custom error types, only the built-in ones
+runTests
+  : (Hash -> ScenarioName -> Step -> Script ())
+  -- ^ The hash argument can be used to disambiguate tests (e.g., to create
+  -- unique parties for each scenario's test run)
+  -> Feature
+  -> Script [[Message]]
+runTests run f = forA f.scenarios $ \s -> do
+  x <- runCatch $ \_ -> do
+    let hash = T.sha256 s.name
+    runSteps run hash s.name [] s.steps
+  pure $ case x of
+    Left err -> [Message s.name None (Some $ Left err)]
+    Right msgs -> msgs
+
+runCatch
+  : (() -> Script a) -- ^ Thunk
+  -> Script (Either Text a)
+runCatch f = do
+  try
+    Right <$> f ()
+  catch
+    e@(GeneralError msg) -> do
+      pure $ Left msg
+    e@(PreconditionFailed msg) -> do
+      pure $ Left msg
+    e@(AssertionFailed msg) -> do
+      pure $ Left msg
+    e@(ArithmeticError msg) -> do
+      pure $ Left msg
+
+-- | Run steps one after the other, stopping if a step fails
+runSteps
+  : (Hash -> ScenarioName -> Step -> Script ())
+  -> Hash
+  -> Text
+  -> [Message]
+  -> [Step]
+  -> Script [Message]
+runSteps run hash name results ss = case ss of
+  [] -> pure results
+  (step::remaining) -> do
+    debugRaw $ show $ Message name (Some step) None
+    result <- runCatch $ \_ -> run hash name step
+    let msg = Message name (Some step) (Some result)
+    debugRaw $ show msg
+    case result of
+      Left _ -> pure $ results <> [msg]
+      _ -> runSteps run hash name (results <> [msg]) remaining
+
+-- | Examples borrowed from https://cucumber.io/docs/gherkin/reference/
+example : Script Feature
+example = pure $ Feature
+  { name = "Example feature"
+  , scenarios = [
+      Scenario
+        { name = "Only One -- More than one alive"
+        , steps =
+          [ Step Given "there are 3 ninjas"
+          , Step And "there are more than one ninja alive"
+          , Step When "2 ninjas meet, they will fight"
+          , Step Then "one ninja dies"
+          , Step And "there is one ninja less alive"
+          ]
+        }
+    , Scenario
+        { name = "No ninjas left"
+        , steps =
+          [ Step Given "there are no ninjas"
+          , Step When "the wind blows"
+          , Step Then "a soul awakens"
+          , Step And "a ninja is born"
+          ]
+        }
+    ]
+  , outlines = [
+      Outline
+        { examples = Examples
+          { name = "Eating cucumbers"
+          , table = [["start", "eat", "left"], ["12", "5", "7"], ["20", "5", "15"]]
+          }
+        , scenario = Scenario
+          { name = "eating"
+          , steps =
+            [ Step Given "there are <start> cucumbers"
+            , Step When "I eat <eat> cucumbers"
+            , Step Then "I should have <left> cucumbers"
+            ]
+          }
+        }
+    ]
+  }
+
+exampleRun : Feature -> Script [[Message]]
+exampleRun = runTests $ \randomString scenario step -> do
+  case step of
+    Step Given "there are no ninjas" -> error "not implemented"
+    Step When "2 ninjas meet, they will fight" -> error "they didn't fight"
+    _ -> pure ()
