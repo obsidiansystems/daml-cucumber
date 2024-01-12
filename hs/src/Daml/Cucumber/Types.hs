@@ -6,7 +6,7 @@ import qualified Data.Text as T
 import GHC.Generics
 
 data Keyword = Given | When | Then | And | But
-  deriving (Eq, Show, Read, Enum, Bounded, Generic)
+  deriving (Eq, Show, Read, Enum, Bounded, Generic, Ord)
 
 instance ToJSON Keyword
 instance FromJSON Keyword
@@ -74,6 +74,16 @@ instance FromJSON Examples where
   parseJSON = genericParseJSON (defaultOptions {
     fieldLabelModifier = drop (T.length "_examples_")
   })
+
+data StepResult = StepResult
+  { stepKeyword :: Keyword
+  , ident :: Text
+  , success :: Bool
+  }
+  deriving (Eq, Show, Read, Generic)
+
+instance ToJSON StepResult
+instance FromJSON StepResult
 
 data Feature = Feature
   { _feature_name :: Text
