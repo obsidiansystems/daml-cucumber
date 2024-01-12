@@ -52,7 +52,7 @@ main = do
         ExitSuccess -> case result of
           Left unparseable -> putStrLn $ "Tests FAILED, unreadable results: " <> unparseable
           Right messages -> do
-            putStrLn $ "Feature: " <> T.unpack feature
+            putStrLn $ T.unpack feature
             forM_ messages $ \scenario -> do
               case scenario of
                 (x:_) -> putStrLn $ "  Scenario: " <> T.unpack (_message_scenario x)
