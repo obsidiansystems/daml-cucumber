@@ -19,23 +19,31 @@ common warnings
 library
     import:           warnings
     exposed-modules:  Daml.Cucumber
+                      Daml.Cucumber.Parse
+                      Daml.Cucumber.Types
     build-depends:    base >= 4.14 && < 5
                     , abacate >= 0.0 && < 0.1
                     , aeson
+                    , bytestring
+                    , parsec
                     , process
                     , reflex
                     , reflex-process
                     , text
     hs-source-dirs:   src
     default-language: Haskell2010
-    default-extensions: DeriveGeneric
+    default-extensions:
+      DeriveGeneric
+      FlexibleContexts
+      LambdaCase
 
 executable daml-cucumber
     import:           warnings
     main-is:          Main.hs
-    build-depends:
-        base,
-        daml-cucumber,
-        optparse-applicative
+    build-depends: base
+                 , aeson
+                 , daml-cucumber
+                 , optparse-applicative
+                 , temporary
     hs-source-dirs:   src-exe
     default-language: Haskell2010

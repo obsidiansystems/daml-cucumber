@@ -1,97 +1,69 @@
-module Daml.Cucumber
-  ( parseFile
-  , module Daml.Cucumber
-  ) where
+module Daml.Cucumber where
 
+import Control.Monad.Fix
+import Control.Monad.IO.Class
+import Daml.Cucumber.Parse
+import Daml.Cucumber.Types
 import Data.Aeson
-import Data.Text (Text)
-import GHC.Generics
-import Language.Abacate hiding (Examples, Scenario, Step, Feature)
-import qualified Language.Abacate as A
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as LBS
+import Reflex
+import Reflex.Host.Headless
+import Reflex.Process
+import Reflex.Process.Lines
+import qualified System.Process as Proc
 
-data Keyword = Given | When | Then | And | But
-  deriving (Eq, Show, Read, Enum, Bounded, Generic)
-
-instance ToJSON Keyword
-instance FromJSON Keyword
-
-data Scenario = Scenario
-  { _scenario_name :: Text
-  , _scenario_steps :: [Step]
+data Opts = Opts
+  { _opts_darPath :: FilePath
+  , _opts_ledgerHost :: String
+  , _opts_ledgerPort :: Int
+  , _opts_featureFile :: FilePath
+  , _opts_scriptName :: String
   }
-  deriving (Eq, Show, Read, Generic)
 
-instance ToJSON Scenario where
-  toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_scenario_")
-  })
+writeFeatureJson :: FilePath -> Feature -> IO ()
+writeFeatureJson path f = LBS.writeFile path (encode f)
 
-instance FromJSON Scenario where
-  parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_scenario_")
-  })
+-- daml script --dar .daml/dist/daml-app-0.0.1.dar  --ledger-host localhost --ledger-port 6865 --script-name "Cucumber:exampleRun" --input-file out.json --output-file result.json
+runDamlScript
+  :: ( TriggerEvent t m, PerformEvent t m
+     , MonadHold t m
+     , MonadIO m, MonadIO (Performable m)
+     , MonadFix m
+     )
+  => Opts
+  -> FilePath
+  -> FilePath
+  -> m (Process t ByteString ByteString, Event t FilePath, Event t Lines)
+runDamlScript opts input output = do
+  let damlScriptCmd = Proc.proc "daml" {- TODO staticWhich -}
+        [ "--dar", _opts_darPath opts
+        , "--ledger-host", _opts_ledgerHost opts
+        , "--ledger-port", show (_opts_ledgerPort opts)
+        , "--script-name", _opts_scriptName opts
+        , "--input-file", input
+        , "--output-file", output
+        ]
+  p <- createProcess damlScriptCmd (ProcessConfig never never)
+  stdout <- newLines (_process_stdout p) (() <$ _process_exit p)
+  return $ (p, output <$ _process_exit p, stdout)
 
-data Step = Step
-  { _step_keyword :: Keyword
-  , _step_body :: Text
-  }
-  deriving (Eq, Show, Read, Generic)
-
-instance ToJSON Step where
-  toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_step_")
-  })
-
-instance FromJSON Step where
-  parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_step_")
-  })
-
-data Outline = Outline
-  { _outline_examples :: Examples
-  , _outline_scenario :: Scenario
-  }
-  deriving (Eq, Show, Read, Generic)
-
-instance ToJSON Outline where
-  toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_outline_")
-  })
-
-instance FromJSON Outline where
-  parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_outline_")
-  })
-
-data Examples = Examples
-  { _examples_name :: Text
-  , _examples_table :: [[Text]]
-  }
-  deriving (Eq, Show, Read, Generic)
-
-instance ToJSON Examples where
-  toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_examples_")
-  })
-
-instance FromJSON Examples where
-  parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_examples_")
-  })
-
-data Feature = Feature
-  { _feature_name :: Text
-  , _feature_scenarios :: [Scenario]
-  , _feature_outlines :: [Outline]
-  }
-  deriving (Eq, Show, Read, Generic)
-
-instance ToJSON Feature where
-  toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_feature_")
-  })
-
-instance FromJSON Feature where
-  parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_feature_")
-  })
+runCucumberFeature
+  :: Opts
+  -> FilePath
+  -> FilePath
+  -> IO ()
+runCucumberFeature opts input output = do
+  feat <- parseFeature $ _opts_featureFile opts
+  case feat of
+    Left err -> error $ "Unable to parse feature file: " <> show err
+    Right f -> do
+      liftIO $ LBS.writeFile input $ encode f
+      runHeadlessApp $ do
+        (p, done, stdout) <- runDamlScript opts input output
+        performEvent_ $ ffor stdout $ liftIO . print
+        performEvent_ $ ffor done $ liftIO . print
+        result <- performEvent $ ffor done $
+          fmap (decode :: LBS.ByteString -> Maybe [[Message]]) . liftIO . LBS.readFile
+        exit <- performEvent $ ffor result $ liftIO . print
+        pure $ () <$ exit

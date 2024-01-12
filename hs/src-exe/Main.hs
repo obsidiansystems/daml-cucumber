@@ -1,13 +1,8 @@
 module Main where
 
+import Daml.Cucumber
 import Options.Applicative
-
-data Opts = Opts
-  { _opts_darPath :: FilePath
-  , _opts_ledgerHost :: String
-  , _opts_ledgerPort :: Int
-  , _opts_featureFile :: FilePath
-  }
+import System.IO.Temp
 
 opts :: Parser Opts
 opts = Opts
@@ -27,11 +22,14 @@ opts = Opts
       ( long "feat"
       <> metavar "FILEPATH"
       <> help "Path to gherkin feature file" )
+  <*> strOption
+      ( long "script"
+      <> metavar "MODULE:FUNCTION"
+      <> help "Test script entry point (\"Module:run\")" )
   where
     intOption :: Mod OptionFields Int -> Parser Int
     intOption = option auto
 
-      
 main :: IO ()
 main = do
   options <- execParser $ info (opts <**> helper) $ mconcat
@@ -39,5 +37,6 @@ main = do
     , progDesc "Run cucumber tests in daml script"
     , header "daml-cucumber cli tool"
     ]
-  pure ()
-  
+  withSystemTempFile "cucumber-input-json" $ \input _ -> do
+    withSystemTempFile "cucumber-output-json" $ \output _ -> do
+      runCucumberFeature options input output

@@ -14,6 +14,7 @@ let
   ghc = platform.ghc.override {
     overrides = self: super: {
       abacate = haskellLib.doJailbreak (haskellLib.markUnbroken super.abacate);
+      reflex-process = self.callCabal2nix "reflex-process" (pkgs.hackGet ./dep/reflex-process) {};
     };
   };
 in

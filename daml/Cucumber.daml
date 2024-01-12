@@ -22,7 +22,7 @@ data Step = Step
 
 data Outline = Outline
   with
-    examples : Examples
+    examples : [Examples]
     scenario : Scenario
   deriving (Eq, Show)
 
@@ -127,10 +127,10 @@ example = pure $ Feature
     ]
   , outlines = [
       Outline
-        { examples = Examples
+        { examples = [Examples
           { name = "Eating cucumbers"
           , table = [["start", "eat", "left"], ["12", "5", "7"], ["20", "5", "15"]]
-          }
+          }]
         , scenario = Scenario
           { name = "eating"
           , steps =
