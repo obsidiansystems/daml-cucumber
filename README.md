@@ -33,6 +33,15 @@ Feature: Example
     Then Contract X is created => Failed: Not implemented
 ```
 
+## Building daml-cucumber
+
+To build the daml-cucumber executable, run:
+
+```bash
+cd hs
+nix-build
+```
+
 ## Working on daml-cucumber
 
 From the project root, run `nix-shell` to get a shell with the `daml` command, `daml sdk`, `ghci`, `cabal`, and necessary haskell packages installed.
