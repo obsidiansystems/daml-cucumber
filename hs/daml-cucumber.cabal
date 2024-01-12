@@ -30,12 +30,15 @@ library
                     , reflex
                     , reflex-process
                     , text
+                    , which
     hs-source-dirs:   src
     default-language: Haskell2010
     default-extensions:
       DeriveGeneric
       FlexibleContexts
       LambdaCase
+      OverloadedStrings
+      TemplateHaskell
 
 executable daml-cucumber
     import:           warnings
@@ -45,5 +48,6 @@ executable daml-cucumber
                  , daml-cucumber
                  , optparse-applicative
                  , temporary
+                 , text
     hs-source-dirs:   src-exe
     default-language: Haskell2010

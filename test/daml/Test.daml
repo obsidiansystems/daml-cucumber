@@ -1,0 +1,24 @@
+module Test where
+
+import Cucumber
+import Daml.Script
+
+template X
+  with
+    owner : Party
+  where
+    signatory owner
+
+main : Feature -> Script [[Message]]
+main = runTests $ \hash scenarioName step -> do
+  case step of
+    Step Given "a party" -> do
+      allocateParty (p1 hash)
+      pure ()
+    Step When "the party creates contract X" -> do
+      parties <- listKnownParties
+      debug parties
+      pure ()
+    s -> error $ "Not implemented: " <> show s
+  where
+    p1 hash = "alice-" <> hash

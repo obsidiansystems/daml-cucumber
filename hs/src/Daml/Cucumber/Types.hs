@@ -2,6 +2,7 @@ module Daml.Cucumber.Types where
 
 import Data.Aeson
 import Data.Text (Text)
+import qualified Data.Text as T
 import GHC.Generics
 
 data Keyword = Given | When | Then | And | But
@@ -18,12 +19,12 @@ data Scenario = Scenario
 
 instance ToJSON Scenario where
   toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_scenario_")
+    fieldLabelModifier = drop (T.length "_scenario_")
   })
 
 instance FromJSON Scenario where
   parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_scenario_")
+    fieldLabelModifier = drop (T.length "_scenario_")
   })
 
 data Step = Step
@@ -34,12 +35,12 @@ data Step = Step
 
 instance ToJSON Step where
   toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_step_")
+    fieldLabelModifier = drop (T.length "_step_")
   })
 
 instance FromJSON Step where
   parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_step_")
+    fieldLabelModifier = drop (T.length "_step_")
   })
 
 data Outline = Outline
@@ -50,12 +51,12 @@ data Outline = Outline
 
 instance ToJSON Outline where
   toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_outline_")
+    fieldLabelModifier = drop (T.length "_outline_")
   })
 
 instance FromJSON Outline where
   parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_outline_")
+    fieldLabelModifier = drop (T.length "_outline_")
   })
 
 data Examples = Examples
@@ -66,12 +67,12 @@ data Examples = Examples
 
 instance ToJSON Examples where
   toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_examples_")
+    fieldLabelModifier = drop (T.length "_examples_")
   })
 
 instance FromJSON Examples where
   parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_examples_")
+    fieldLabelModifier = drop (T.length "_examples_")
   })
 
 data Feature = Feature
@@ -83,29 +84,45 @@ data Feature = Feature
 
 instance ToJSON Feature where
   toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_feature_")
+    fieldLabelModifier = drop (T.length "_feature_")
   })
 
 instance FromJSON Feature where
   parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_feature_")
+    fieldLabelModifier = drop (T.length "_feature_")
   })
+
+data DamlEither a b = DamlEither_Left a | DamlEither_Right b
+  deriving (Show, Read, Eq, Ord, Generic)
+
+damlEitherJsonOpts :: Options
+damlEitherJsonOpts = defaultOptions
+  { sumEncoding = defaultTaggedObject
+    { tagFieldName = "tag"
+    , contentsFieldName = "value"
+    }
+  , constructorTagModifier = drop (T.length "DamlEither_")
+  }
+
+instance (ToJSON a, ToJSON b) => ToJSON (DamlEither a b) where
+  toEncoding = genericToEncoding damlEitherJsonOpts
+
+instance (FromJSON a, FromJSON b) => FromJSON (DamlEither a b) where
+  parseJSON = genericParseJSON damlEitherJsonOpts
 
 data Message = Message
   { _message_scenario :: Text
   , _message_step :: Maybe Step
-  , _message_result :: Maybe (Either Text ())
+  , _message_result :: Maybe (DamlEither Text ())
   }
   deriving (Eq, Show, Read, Generic)
 
 instance ToJSON Message where
   toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (length "_message_")
+    fieldLabelModifier = drop (T.length "_message_")
   })
 
 instance FromJSON Message where
   parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (length "_message_")
+    fieldLabelModifier = drop (T.length "_message_")
   })
-
-
