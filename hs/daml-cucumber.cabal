@@ -21,7 +21,6 @@ library
     exposed-modules:  Daml.Cucumber
                       Daml.Cucumber.Parse
                       Daml.Cucumber.Types
-                      Daml.Test
     build-depends:    base >= 4.14 && < 5
                     , abacate >= 0.0 && < 0.1
                     , aeson

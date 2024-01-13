@@ -75,7 +75,7 @@ liftScript action =
                a <- action
                pure (a,s))
 
-step: Keyword -> Text -> Script a -> StateT [StepResult] Script ()
+step: Keyword -> Text -> Script a -> StateT [StepResult] Script a
 step keyword ident action = do
   result <- liftScript $ do
     tryCatch action

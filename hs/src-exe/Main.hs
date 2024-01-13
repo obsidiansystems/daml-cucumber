@@ -9,8 +9,6 @@ import System.Exit
 import System.IO
 import System.IO.Temp
 
-import Daml.Test
-
 opts :: Parser Opts
 opts = Opts
   <$> strOption
