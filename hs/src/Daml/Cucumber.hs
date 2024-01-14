@@ -1,6 +1,8 @@
 module Daml.Cucumber where
 
 import Data.Foldable
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Daml.Cucumber.Parse
@@ -64,17 +66,47 @@ runTestSuite opts = do
   BS.putStrLn scriptResult
   let
     Just decoded = Aeson.decode . LBS.fromStrict $ scriptResult
-    resultMap = makeResultMap decoded
+    results = collateResults decoded
 
   for_ (_feature_scenarios feature) $ \scenario -> do
     T.putStrLn $ "Scenario => " <> _scenario_name scenario
     for_ (_scenario_steps scenario) $ \(Step k b) -> do
       putStr $  "    " <> show k <> " " <> T.unpack b <> ": "
       let
-        result = Map.lookup (k, b) resultMap
+        result = stepPresent (StepKey k b) results
       case result of
-        Just (StepResult _ _ r) -> putStrLn $ "Result " <> show r
-        Nothing -> putStrLn $ "Missing"
+        True -> putStrLn "OK"
+        False -> putStrLn "Step is Missing"
+
+  putStrLn "Developer errors found:"
+  for_ (reportedErrors results) T.putStrLn
+
+-- TODO Barely scratches the surface of collation
+data TestResults = TestResults
+  { stepResuls :: Set StepKey
+  , reportedErrors :: [Text]
+  }
+
+stepPresent :: StepKey -> TestResults -> Bool
+stepPresent key (TestResults r _) = Set.member key r
+
+instance Semigroup TestResults where
+  (TestResults a b) <> (TestResults c d) = TestResults (a <> c) (b <> d)
+instance Monoid TestResults where
+  mempty = TestResults mempty mempty
+
+collateResults :: [Message] -> TestResults
+collateResults = mconcat . fmap toSet
+  where
+    toSet = \case
+      StepComplete key -> TestResults (Set.singleton key) []
+      DuplicateStepFound (StepKey keyword ident) -> TestResults mempty ["Step: " <> tShow keyword <> " " <> ident <> " is duplicated"]
+      DuplicateScenarioFound name -> TestResults mempty ["Scenario:  " <> name <> " is duplicated"]
+      _ -> mempty
+
+-- END TODO
+tShow :: Show a => a -> Text
+tShow = T.pack . show
 
 makeResultMap :: [StepResult] -> Map (Keyword, Text) StepResult
 makeResultMap results =

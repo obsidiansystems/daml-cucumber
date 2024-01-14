@@ -1,99 +1,90 @@
 module Test where
 
+import DA.Foldable
 import DA.Stack
+import DA.Action
+import DA.Set
 import Daml.Script
 import DA.Exception
 import DA.Either
-import DA.Action
+import StateT
 import DA.Action.State.Class
+import Tester
 
-data Keyword = Given | When | Then | And | But
-  deriving (Eq, Show, Enum, Bounded)
-
-template X
-  with
-    owner : Party
-  where
-    signatory owner
-
-data StepResult = StepResult
-  with
-    stepKeyword: Keyword
-    ident: Text
-    success: Bool
-
-tryCatch
-  : Script a
-  -> Script (Either Text a)
-tryCatch f = do
-  try
-    Right <$> f
-  catch
-    e@(GeneralError msg) -> do
-      pure $ Left msg
-    e@(PreconditionFailed msg) -> do
-      pure $ Left msg
-    e@(AssertionFailed msg) -> do
-      pure $ Left msg
-    e@(ArithmeticError msg) -> do
-      pure $ Left msg
-
-data StateT s m a = StateT
-    { runStateT: s -> m (a, s) }
-
-instance (Applicative m, Action m) => Functor (StateT s m) where
- fmap f (StateT runState) = StateT $ (\s -> do
-   (a, s)<- runState s
-   pure (f a, s))
-
-instance (Applicative m, Action m) => Applicative (StateT s m) where
- pure a = StateT $ \s -> pure (a, s)
-
- StateT mf <*> StateT mx = StateT $ \ s -> do
-  (f, s') <- mf s
-  (x, s'') <- mx s'
-  pure (f x, s'')
-
-instance (Applicative m, Action m) => Action (StateT s m) where
-  m >>= k  = StateT $ \ s -> do
-    (a, s') <- runStateT m s
-    runStateT (k a) s'
-
-state: (Action m)
-      => (s -> (a, s))  -- ^pure state transformer
-      -> StateT s m a   -- ^equivalent state-passing computation
-state f = StateT (pure . f)
-
-instance Action m => ActionState s (StateT s m) where
-  get = state $ \ s -> (s, s)
-  put s = state $ \ _ -> ((), s)
-  modify f = state $ \ s -> ((), f s)
-
-liftScript: Script a -> StateT s Script a
-liftScript action =
-  StateT $ (\s -> do
-               a <- action
-               pure (a,s))
-
-step: Keyword -> Text -> Script a -> StateT [StepResult] Script a
-step keyword ident action = do
-  result <- liftScript $ do
-    tryCatch action
-  modify ([StepResult keyword ident (isRight result)] <>)
-
-runState: s -> StateT s m a -> m (a, s)
-runState s (StateT f) = f s
-
-main : Script [StepResult]
+main : Script [Message]
 main = do
-  (_, result) <- runState [] $ do
-    step Given "a party" $ do
-      allocateParty "alice"
-      pure ()
-    step When "the party creates contract X" $ do
-      parties <- listKnownParties
-      debug parties
-      pure ()
-    step Then "Contract X is created" $ do
-      pure ()
-  pure result
+  (_, ctx) <- runTester allTests
+  pure ctx.results
+
+allTests: Tester ()
+allTests = do
+  testStepsCanOnlyBeDefinedOnce
+  testMultipleScenariosInOneTest
+  testScenarioOutlineByJustEnumerating
+
+testStepsCanOnlyBeDefinedOnce: Tester ()
+testStepsCanOnlyBeDefinedOnce = do
+  step Given "a party"
+  liftScript $ allocateParty "alice"
+  step Given "a party"
+  step When "the party creates contract X"
+  parties <- liftScript listKnownParties
+  step Then "Contract X is created"
+
+testMultipleScenariosInOneTest: Tester ()
+testMultipleScenariosInOneTest = do
+  scenario' "A something that can be tested"
+   -- ^ Note you can optionally define the Scenario if you wanna, though you don't have to
+  step Given "a guy does a thing"
+  step Then "well he did a thing"
+
+  scenario' "Something else that can be tested"
+  step Given "this other guy I know"
+  step Then "he also did something"
+  pure ()
+
+data Owner = Cat
+
+data AnimalCategory
+  = Dog
+  | Cat
+  | Toaster
+  | Caesar
+  | Parrot
+  deriving (Enum, Bounded)
+
+instance Show AnimalCategory where
+  show = \case
+    Dog -> "Dog"
+    Cat -> "Cat"
+    Toaster -> "Toaster"
+    Caesar -> "Caesar"
+    Parrot -> "Parrot"
+
+data AnimalType
+  = Mammal
+  | Salad
+  | Bird
+  | Toaster
+  deriving (Enum, Bounded)
+
+instance Show AnimalType where
+  show = \case
+    Mammal -> "mammal"
+    Salad -> "salad"
+    Bird -> "bird"
+    Toaster -> "toaster"
+
+testScenarioOutlineByJustEnumerating: Tester ()
+testScenarioOutlineByJustEnumerating = do
+  step Given "there is a animal and a animal type"
+  forA_ categories $ \category -> do
+    forA_ types $ \t ->  testSingleCase category t
+    step Then $ "the " <> show category <> " is pretty cool I guess"
+  where
+    categories = [minBound .. maxBound]
+    types = [minBound .. maxBound]
+
+testSingleCase: AnimalCategory -> AnimalType -> Tester ()
+testSingleCase dc dt = do
+  step And $ "the " <> show dc <> " is a " <> show dt

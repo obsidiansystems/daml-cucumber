@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Daml.Cucumber.Types where
 
 import Data.Aeson
@@ -10,6 +11,34 @@ data Keyword = Given | When | Then | And | But
 
 instance ToJSON Keyword
 instance FromJSON Keyword
+
+data StepKey = StepKey
+  { keyword :: Keyword
+  , identifier :: Text
+  }
+  deriving (Eq, Show, Ord, Generic)
+
+instance ToJSON StepKey
+instance FromJSON StepKey
+
+data Message
+  = StepComplete StepKey
+  | ScenarioComplete Text
+  | DuplicateStepFound StepKey
+  | DuplicateScenarioFound Text
+  deriving (Eq, Show, Generic)
+
+instance ToJSON Message
+instance FromJSON Message where
+  parseJSON = withObject "Message" $ \o -> do
+    tag :: Text <- o .: "tag"
+    case tag of
+      "StepComplete" -> StepComplete <$> o .: "value"
+      "ScenarioComplete" -> ScenarioComplete <$> o .: "value"
+      "DuplicateStepFound" -> DuplicateStepFound <$> o .: "value"
+      "DuplicateScenarioFound" -> DuplicateScenarioFound <$> o .: "value"
+      _ -> fail $ "Invalid message tag " <> T.unpack tag
+
 
 data Scenario = Scenario
   { _scenario_name :: Text
@@ -120,19 +149,19 @@ instance (ToJSON a, ToJSON b) => ToJSON (DamlEither a b) where
 instance (FromJSON a, FromJSON b) => FromJSON (DamlEither a b) where
   parseJSON = genericParseJSON damlEitherJsonOpts
 
-data Message = Message
-  { _message_scenario :: Text
-  , _message_step :: Maybe Step
-  , _message_result :: Maybe (DamlEither Text ())
-  }
-  deriving (Eq, Show, Read, Generic)
-
-instance ToJSON Message where
-  toEncoding = genericToEncoding (defaultOptions {
-    fieldLabelModifier = drop (T.length "_message_")
-  })
-
-instance FromJSON Message where
-  parseJSON = genericParseJSON (defaultOptions {
-    fieldLabelModifier = drop (T.length "_message_")
-  })
+-- data Message = Message
+--   { _message_scenario :: Text
+--   , _message_step :: Maybe Step
+--   , _message_result :: Maybe (DamlEither Text ())
+--   }
+--   deriving (Eq, Show, Read, Generic)
+--
+-- instance ToJSON Message where
+--   toEncoding = genericToEncoding (defaultOptions {
+--     fieldLabelModifier = drop (T.length "_message_")
+--   })
+--
+-- instance FromJSON Message where
+--   parseJSON = genericParseJSON (defaultOptions {
+--     fieldLabelModifier = drop (T.length "_message_")
+--   })

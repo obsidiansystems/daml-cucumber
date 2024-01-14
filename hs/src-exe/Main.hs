@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Concurrent
 import Control.Monad
 import Daml.Cucumber
 import Daml.Cucumber.Types
