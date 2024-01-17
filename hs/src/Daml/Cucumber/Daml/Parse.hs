@@ -79,7 +79,7 @@ parseTypeSig name = do
 
 parseComment :: Parser [Token]
 parseComment = do
-  accept (== BeginComment)
+  _ <- accept (== BeginComment)
   tokens <- getTheComment
   pure tokens
 
@@ -90,11 +90,9 @@ getTheComment = do
     LineBreak -> do
       eat
       pure []
-
     _ -> do
       eat
       (token :) <$> getTheComment
-    _ -> pure []
 
 parseStepBind :: Parser (Keyword, Text)
 parseStepBind = do
