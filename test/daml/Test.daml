@@ -75,6 +75,7 @@ instance Show AnimalType where
     Bird -> "bird"
     Toaster -> "toaster"
 
+-- Given a thing about a horse
 testScenarioOutlineByJustEnumerating: Tester ()
 testScenarioOutlineByJustEnumerating = do
   step Given "there is a animal and a animal type"

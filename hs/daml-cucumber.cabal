@@ -21,6 +21,9 @@ library
     exposed-modules:  Daml.Cucumber
                       Daml.Cucumber.Parse
                       Daml.Cucumber.Types
+                      Daml.Cucumber.Daml.Parse
+                      Daml.Cucumber.Daml.Parser
+                      Daml.Cucumber.Daml.Tokenizer
     build-depends:    base >= 4.14 && < 5
                     , abacate >= 0.0 && < 0.1
                     , aeson
@@ -34,6 +37,7 @@ library
                     , reflex-process
                     , text
                     , which
+                    , mtl
     hs-source-dirs:   src
     default-language: Haskell2010
     default-extensions:
