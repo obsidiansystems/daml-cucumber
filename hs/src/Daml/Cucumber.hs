@@ -71,7 +71,7 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
   files <- findFilesRecursive (/= ".daml") folder
   let
     extraPred = case mFeatureFile of
-      Just ff -> (ff ==)
+      Just ff -> (T.isInfixOf (T.pack ff) . T.pack)
       Nothing -> const True
 
     featureFiles = filter (\x -> extraPred x && hasExtension "feature" x) files
