@@ -29,6 +29,7 @@ library
                     , aeson
                     , directory
                     , filepath
+                    , extra
                     , bytestring
                     , parsec
                     , process
@@ -37,6 +38,7 @@ library
                     , reflex-process
                     , text
                     , which
+                    , casing
                     , mtl
     hs-source-dirs:   src
     default-language: Haskell2010
@@ -46,6 +48,7 @@ library
       LambdaCase
       OverloadedStrings
       TemplateHaskell
+      ScopedTypeVariables
 
 executable daml-cucumber
     import:           warnings

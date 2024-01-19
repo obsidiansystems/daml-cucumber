@@ -75,7 +75,12 @@ instance Show AnimalType where
     Bird -> "bird"
     Toaster -> "toaster"
 
--- Given a thing about a horse
+
+-- Given a party
+givenAParty: Tester ()
+givenAParty = pure ()
+
+-- Given a guy does a thing
 testScenarioOutlineByJustEnumerating: Tester ()
 testScenarioOutlineByJustEnumerating = do
   step Given "there is a animal and a animal type"
@@ -85,6 +90,50 @@ testScenarioOutlineByJustEnumerating = do
   where
     categories = [minBound .. maxBound]
     types = [minBound .. maxBound]
+
+-- Given there is a document and a type
+givenAAnimalType : Tester ()
+givenAAnimalType = pure ()
+
+-- Given this other guy I know
+givenThisOtherGuyIKnow : Tester ()
+givenThisOtherGuyIKnow = pure ()
+
+-- When the party creates contract X
+whenThePartyCreatesContact : Tester ()
+whenThePartyCreatesContact = pure ()
+
+-- Then Contract X is created
+thenContractIsCreated : Tester ()
+thenContractIsCreated = pure ()
+
+-- Then he also did something
+thenHeAlsoDidSomething : Tester ()
+thenHeAlsoDidSomething = pure ()
+
+-- Then the Dog Mammal is pretty cool I guess
+thenTheDogMammalIsCool : Tester ()
+thenTheDogMammalIsCool = pure ()
+
+-- Then the Cat is pretty cool I guess
+thenWait : Tester ()
+thenWait = pure ()
+
+-- Then this isn't implemented
+thenNotImplemented : Tester ()
+thenNotImplemented = pure ()
+
+-- Then well he did a thing
+thenWellHeDidAThing : Tester ()
+thenWellHeDidAThing = pure ()
+
+-- And the Parrot is a Salad
+andTheIden : Tester ()
+andTheIden = pure ()
+
+-- And the Cat is a Bird
+isPdf : Tester ()
+isPdf = pure ()
 
 testSingleCase: AnimalCategory -> AnimalType -> Tester ()
 testSingleCase dc dt = do

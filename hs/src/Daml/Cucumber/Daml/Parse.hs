@@ -8,13 +8,16 @@ import Control.Monad
 import Data.Foldable
 import Daml.Cucumber.Daml.Tokenizer
 import Daml.Cucumber.Daml.Parser
+import Daml.Cucumber.Types hiding (identifier)
 
-data Keyword = Given | When | Then | And | But
-  deriving (Eq, Show, Enum, Bounded, Ord)
+data DamlFile = DamlFile
+  { damlFilePath :: FilePath
+  , damlFileDefinitions :: [Definition]
+  }
 
 data Definition = Definition
   { definitionName :: Text
-  , definitionStep :: Maybe (Keyword, Text)
+  , definitionStep :: Maybe Step
   , definitionType :: TypeSig
   }
   deriving (Eq, Show)
@@ -94,8 +97,8 @@ getTheComment = do
       eat
       (token :) <$> getTheComment
 
-parseStepBind :: Parser (Keyword, Text)
-parseStepBind = do
+parseStepBinding :: Parser Step
+parseStepBinding = do
   comment <- parseComment
   case comment of
     (Identifier ident : rest) -> do
@@ -109,7 +112,7 @@ parseStepBind = do
             "But" -> Just But
             _ -> Nothing
       case parsedKeyword of
-        Just kw -> pure (kw, tokensToText rest)
+        Just kw -> pure $ Step kw (tokensToText rest)
         Nothing -> fail ""
     _ -> fail ""
   where
@@ -117,11 +120,19 @@ parseStepBind = do
 
 parseDefinition :: Parser Definition
 parseDefinition = do
-  mStepBind <- try parseStepBind
+  mStepBind <- try parseStepBinding
   ident <- identifier
   _ <- accept (==Colon)
   t <- parseTypeSig ident
   pure $ Definition ident mStepBind t
+
+parseFileDefinitions :: FilePath -> IO (Maybe [Definition])
+parseFileDefinitions path = do
+  parseFile path $ parseAll parseDefinition
+
+parseDamlFile :: FilePath -> IO (Maybe DamlFile)
+parseDamlFile path =
+  fmap (DamlFile path) <$> parseFileDefinitions path
 
 testParseAFile :: FilePath -> IO ()
 testParseAFile path = do

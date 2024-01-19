@@ -60,7 +60,7 @@ data Step = Step
   { _step_keyword :: Keyword
   , _step_body :: Text
   }
-  deriving (Eq, Show, Read, Generic)
+  deriving (Eq, Ord, Show, Read, Generic)
 
 instance ToJSON Step where
   toEncoding = genericToEncoding (defaultOptions {

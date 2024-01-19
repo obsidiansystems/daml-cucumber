@@ -13,25 +13,14 @@ import System.IO.Temp
 opts :: Parser Opts
 opts = Opts
   <$> strOption
-      ( long "dar"
+      ( long "directory"
       <> metavar "FILEPATH"
-      <> help "Path to dar file" )
+      <> help "Directory where feature files and daml files are" )
   <*> strOption
-      ( long "host"
-      <> metavar "HOST"
-      <> help "Ledger sandbox host" )
-  <*> intOption
-      ( long "port"
-      <> metavar "PORT"
-      <> help "Ledger sandbox port" )
-  <*> strOption
-      ( long "feat"
+      ( long "source"
       <> metavar "FILEPATH"
-      <> help "Path to gherkin feature file" )
-  <*> strOption
-      ( long "script"
-      <> metavar "Module:function"
-      <> help "Test script entry point (\"Module:run\")" )
+      <> help "Directory the daml.yaml points to your source" )
+
   where
     intOption :: Mod OptionFields Int -> Parser Int
     intOption = option auto

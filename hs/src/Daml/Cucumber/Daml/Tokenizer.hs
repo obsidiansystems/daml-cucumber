@@ -31,18 +31,19 @@ tokenize :: Text -> [Token]
 tokenize input
   | T.null input = []
   | T.isPrefixOf "--" token = BeginComment : tokenize (T.drop 2 token)
-  | T.isPrefixOf "\n" token || T.isPrefixOf "\r" token = let
+  | T.isPrefixOf "\n" token || T.isPrefixOf "\r" token =
+    let
       withoutBreaks = T.dropWhile (flip elem lineBreaks) token
-      in
-      LineBreak : tokenize withoutBreaks
+    in
+    LineBreak : tokenize withoutBreaks
 
   | T.isPrefixOf ":" token = Colon : tokenize (T.drop 1 token)
   | T.isPrefixOf "=" token = Equals : tokenize (T.drop 1 token)
   | T.isPrefixOf "->" token = Arrow : tokenize (T.drop 2 token)
   | T.isPrefixOf "=>" token = TypeArrow : tokenize (T.drop 2 token)
-  | T.isPrefixOf "do" token = Do : tokenize (T.drop 2 token)
   | otherwise = case ident of
       "" -> tokenize $ T.drop 1 token
+      "do" -> Do : tokenize rest
       _ -> Identifier ident : tokenize rest
   where
     token = T.dropWhile (flip elem defaultSpaces) input
@@ -56,4 +57,4 @@ lineBreaks :: String
 lineBreaks = "\n\r"
 
 defaultSpacesWithColonAndBreaks :: String
-defaultSpacesWithColonAndBreaks = "\n\r :"
+defaultSpacesWithColonAndBreaks = lineBreaks <> ":" <> defaultSpaces
