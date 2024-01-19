@@ -16,6 +16,10 @@ opts = Opts
       ( long "directory"
       <> metavar "FILEPATH"
       <> help "Directory where feature files and daml files are" )
+  <*> optional (strOption
+      ( long "feature-file"
+      <> metavar "FILEPATH"
+      <> help "Directory where feature files and daml files are" ))
   <*> strOption
       ( long "source"
       <> metavar "FILEPATH"

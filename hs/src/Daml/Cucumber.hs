@@ -37,6 +37,7 @@ import Control.Monad.State
 
 data Opts = Opts
   { _opts_directory :: FilePath
+  , _opts_featureFile :: Maybe FilePath
   , _opts_damlSourceDir :: FilePath
   }
 
@@ -66,10 +67,15 @@ findFilesRecursive pred dir = do
   pure $ files <> mconcat others
 
 runTestSuite :: Opts -> IO ()
-runTestSuite (Opts folder damlFolder) = do
+runTestSuite (Opts folder mFeatureFile damlFolder) = do
   files <- findFilesRecursive (/= ".daml") folder
   let
-    featureFiles = filter (hasExtension "feature") files
+    extraPred = case mFeatureFile of
+      Just ff -> (ff ==)
+      Nothing -> const True
+
+    featureFiles = filter (\x -> extraPred x && hasExtension "feature" x) files
+
     damlFiles = filter (hasExtension "daml") files
 
   Right features <- sequenceA <$> for featureFiles parseFeature
