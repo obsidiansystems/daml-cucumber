@@ -78,7 +78,8 @@ instance Show AnimalType where
 
 -- Given a party
 givenAParty: Tester ()
-givenAParty = pure ()
+givenAParty = do
+  pure ()
 
 -- Given a guy does a thing
 testScenarioOutlineByJustEnumerating: Tester ()

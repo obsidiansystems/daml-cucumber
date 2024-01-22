@@ -23,6 +23,7 @@ library
                       Daml.Cucumber.Types
                       Daml.Cucumber.Daml.Parse
                       Daml.Cucumber.Daml.Parser
+                      Daml.Cucumber.LSP
                       Daml.Cucumber.Daml.Tokenizer
     build-depends:    base >= 4.14 && < 5
                     , abacate >= 0.0 && < 0.1
@@ -40,6 +41,10 @@ library
                     , which
                     , casing
                     , mtl
+                    , neat-interpolation
+                    , tagsoup
+--                    , lsp-client
+--                    , lsp-types
     hs-source-dirs:   src
     default-language: Haskell2010
     default-extensions:

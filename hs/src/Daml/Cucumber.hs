@@ -13,6 +13,7 @@ import Control.Monad.IO.Class
 import Daml.Cucumber.Parse
 import Daml.Cucumber.Types
 import Daml.Cucumber.Daml.Parse
+import Daml.Cucumber.LSP
 import Data.Aeson
 import qualified Data.Aeson as Aeson
 import Data.ByteString (ByteString)
@@ -98,8 +99,11 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
     True -> do
       let
         (_, result) = runState (generateDamlSource stepMapping features) (DamlState mempty mempty)
+        testfile = (damlFolder </> "Generated.daml")
       putStrLn $ show result
-      writeDamlSource (damlFolder </> "Generated.daml") result
+      writeDamlSource testfile result
+      results <- runTestLspSession testfile $ fmap damlFuncName $ damlFunctions result
+      for_ results (putStrLn . show)
       pure ()
   pure ()
 
@@ -218,8 +222,6 @@ collateResults = mconcat . fmap toSet
       _ -> mempty
 
 -- END TODO
-tShow :: Show a => a -> Text
-tShow = T.pack . show
 
 makeResultMap :: [StepResult] -> Map (Keyword, Text) StepResult
 makeResultMap results =

@@ -4,6 +4,7 @@ import Control.Concurrent
 import Control.Monad
 import Daml.Cucumber
 import Daml.Cucumber.Types
+import Daml.Cucumber.LSP
 import qualified Data.Text as T
 import Options.Applicative
 import System.Exit
@@ -37,30 +38,3 @@ main = do
     , header "daml-cucumber cli tool"
     ]
   runTestSuite options
-
-  -- withSystemTempFile "cucumber-input-json" $ \input inputHandle -> do
-  --   hClose inputHandle -- why?
-  --   withSystemTempFile "cucumber-output-json" $ \output outputHandle -> do
-  --     hClose outputHandle -- why?
-  --
-  --     -- case ec of
-  --     --   ExitFailure n -> putStrLn $ "Tests FAILED, unexpected exit, code " <> show n <> show feature
-  --     --   ExitSuccess -> case result of
-  --     --     Left unparseable -> putStrLn $ "Tests FAILED, unreadable results: " <> unparseable
-  --     --     Right messages -> do
-  --     --       putStrLn $ T.unpack feature
-  --     --       forM_ messages $ \scenario -> do
-  --     --         case scenario of
-  --     --           (x:_) -> putStrLn $ "  Scenario: " <> T.unpack (_message_scenario x)
-  --     --           _ -> pure ()
-  --     --         forM_ scenario $ \step -> do
-  --     --           putStr $ ("    " <>) $ case _message_step step of
-  --     --             Nothing -> "<no step>"
-  --     --             Just s -> show (_step_keyword s) <> " " <> T.unpack (_step_body s)
-  --     --           putStrLn $ (" => " <>) $ case _message_result step of
-  --     --             Nothing -> "Pending"
-  --     --             Just (DamlEither_Left err) -> "Failed: " <> T.unpack err
-  --     --             Just (DamlEither_Right ()) -> "Passed"
-  --     --       pure ()
-  --     outputInfo <- readFile output
-  --     putStrLn outputInfo
