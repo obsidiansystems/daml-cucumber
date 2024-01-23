@@ -88,7 +88,6 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
     definedSteps = getAllDefinedSteps definitions
 
     missingSteps = Set.difference requiredSteps definedSteps
-
     stepMapping = mconcat $ fmap makeStepMapping files
 
   case Set.null missingSteps of
@@ -98,12 +97,26 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
 
     True -> do
       let
-        (_, result) = runState (generateDamlSource stepMapping features) (DamlState mempty mempty)
+        (_, result) = runState (generateDamlSource stepMapping features) (DamlScript mempty mempty)
         testfile = (damlFolder </> "Generated.daml")
       putStrLn $ show result
-      writeDamlSource testfile result
-      results <- runTestLspSession testfile $ fmap damlFuncName $ damlFunctions result
-      for_ results (putStrLn . show)
+      writeDamlScript testfile result
+      testResults <- runTestLspSession testfile $ fmap damlFuncName $ damlFunctions result
+
+      for_ features $ \feature -> do
+        for_ (_feature_scenarios feature) $ \s@(Scenario name steps) -> do
+          T.putStrLn $ "Scenario: " <> name
+          let
+            fname = getScenarioFunctionName s
+            result = maybe [] id $ Map.lookup fname testResults
+            success = take (length result) steps
+            failed = drop (length result) steps
+          for_ success (putStrLn . (<> " => OK ") . ("  " <> ) . prettyPrintStep)
+          case failed of
+            (x:rest) -> do
+              putStrLn . (<> " => FAILED ") . ("  " <> ). prettyPrintStep $ x
+              for_ rest (putStrLn . (<> " => NOT REACHED ") . ("  " <> ) . prettyPrintStep)
+            [] -> pure ()
       pure ()
   pure ()
 
@@ -113,7 +126,7 @@ data StepFunc = StepFunc
   }
   deriving (Eq, Show)
 
-data DamlState = DamlState
+data DamlScript = DamlScript
   { damlImports :: Set Text
   , damlFunctions :: [DamlFunc]
   }
@@ -125,29 +138,33 @@ data DamlFunc = DamlFunc
   }
   deriving (Eq, Show)
 
-addImport :: Text -> DamlState -> DamlState
+addImport :: Text -> DamlScript -> DamlScript
 addImport theImport state =
   state { damlImports = Set.insert theImport (damlImports state) }
 
-addFunction :: DamlFunc -> DamlState -> DamlState
+addFunction :: DamlFunc -> DamlScript -> DamlScript
 addFunction func state =
   state { damlFunctions = func : (damlFunctions state) }
 
-generateDamlSource :: Map Step StepFunc -> [Feature] -> State DamlState ()
+generateDamlSource :: Map Step StepFunc -> [Feature] -> State DamlScript ()
 generateDamlSource stepMapping features = do
   for_ features $ \feature -> do
     for_ (_feature_scenarios feature) $ \scenario -> do
-      fnames <- for (_scenario_steps scenario) $ \step -> do
+      fnames <- fmap mconcat $ for (_scenario_steps scenario) $ \step -> do
         let
           Just (StepFunc file fname) = Map.lookup step stepMapping
         modify $ addImport $ T.pack file
-        pure fname
+        pure ["debug \"" <> T.pack (prettyPrintStep step) <> "\"", fname]
 
-      modify $ addFunction $ DamlFunc (T.pack $ toCamel $ fromWords $ T.unpack $ _scenario_name scenario) fnames
+      modify $ addFunction $ DamlFunc (getScenarioFunctionName scenario) fnames
   pure ()
 
-writeDamlSource :: FilePath -> DamlState -> IO ()
-writeDamlSource path state = do
+getScenarioFunctionName :: Scenario -> Text
+getScenarioFunctionName =
+  T.pack . toCamel . fromWords . T.unpack . _scenario_name
+
+writeDamlScript :: FilePath -> DamlScript -> IO ()
+writeDamlScript path state = do
   handle <- openFile path WriteMode
 
   let moduleName = T.pack (takeBaseName path)
