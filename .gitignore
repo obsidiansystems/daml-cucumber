@@ -2,3 +2,4 @@ dist-newstyle/
 hs/dist-newstyle/
 */.daml
 test/daml/log
+result*
