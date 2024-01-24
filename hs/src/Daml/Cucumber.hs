@@ -78,6 +78,11 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
   Right features <- sequenceA <$> for featureFiles parseFeature
   Just files <- sequenceA <$> for damlFiles parseDamlFile
 
+  putStrLn "Found feature files"
+  for_ featureFiles $ putStrLn . ("  " <>)
+  putStrLn ""
+  putStrLn "Found DAML files"
+  for_ damlFiles $ putStrLn . ("  " <>)
   let
     definitions = mconcat $ fmap damlFileDefinitions files
     requiredSteps = mconcat $ fmap getAllRequiredFeatureSteps features

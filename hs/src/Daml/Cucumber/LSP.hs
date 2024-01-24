@@ -120,6 +120,8 @@ mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack
 
 runTestLspSession :: FilePath -> FilePath -> [Text] -> IO (Map Text ([Text], Text))
 runTestLspSession cwd filepath testNames = do
+  putStrLn $ "Running lsp session in " <> cwd
+  putStrLn $ "Generated test file is " <> filepath
   pid <- getProcessID
   let
     reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
@@ -232,6 +234,7 @@ damlIde cwd rpcEvent = do
 
   performEvent_ $ liftIO . BS.putStrLn <$> _process_stderr process
   performEvent_ $ liftIO . BS.putStrLn <$> _process_stdout process
+  performEvent_ $ liftIO (putStrLn "Daml LSP Process died") <$ _process_exit process
   let
     stdout = _process_stdout process
 
