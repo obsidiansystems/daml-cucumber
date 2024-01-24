@@ -107,18 +107,26 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
         for_ (_feature_scenarios feature) $ \s@(Scenario name steps) -> do
           T.putStrLn $ "Scenario: " <> name
           let
-            fname = getScenarioFunctionName s
-            result = maybe [] id $ Map.lookup fname testResults
-            success = take (length result) steps
-            failed = drop (length result) steps
-          for_ success (putStrLn . (<> " => OK ") . ("  " <> ) . prettyPrintStep)
-          case failed of
-            (x:rest) -> do
-              putStrLn . (<> " => FAILED ") . ("  " <> ). prettyPrintStep $ x
-              for_ rest (putStrLn . (<> " => NOT REACHED ") . ("  " <> ) . prettyPrintStep)
-            [] -> pure ()
+             fname = getScenarioFunctionName s
+
+             resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:")) $ Map.lookup fname testResults
+             getResult s = Map.lookup s resultMap
+
+          for_ steps $ \s -> do
+            let
+              pretty = prettyPrintStep s
+              result = getResult $ T.pack pretty
+            case result of
+              Just True -> putStrLn $ ("  " <> pretty <> " => OK")
+              Just False -> putStrLn $ ("  " <> pretty <> " => FAILED")
+              _ -> putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
       pure ()
   pure ()
+
+collateStepResults :: [Text] -> [(Text, Bool)]
+collateStepResults (name:"pass": rest) = (name, True) : collateStepResults rest
+collateStepResults (name:rest) = (name, False) : collateStepResults rest
+collateStepResults _ = []
 
 data StepFunc = StepFunc
   { stepFile :: FilePath
@@ -154,10 +162,14 @@ generateDamlSource stepMapping features = do
         let
           Just (StepFunc file fname) = Map.lookup step stepMapping
         modify $ addImport $ T.pack file
-        pure [fname, "debug \"" <> T.pack (prettyPrintStep step) <> "\""]
-
-      modify $ addFunction $ DamlFunc (getScenarioFunctionName scenario) fnames
+        pure [debug ("step:" <> (T.pack $ prettyPrintStep step)), fname, debug "step:pass"]
+      let
+        sname = getScenarioFunctionName scenario
+      modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames)
   pure ()
+
+debug :: Text -> Text
+debug n = "debug \"" <> n <> "\""
 
 getScenarioFunctionName :: Scenario -> Text
 getScenarioFunctionName =
