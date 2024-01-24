@@ -96,7 +96,7 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
         (_, result) = runState (generateDamlSource stepMapping features) (DamlScript mempty mempty)
         testfile = (damlFolder </> "Generated.daml")
       writeDamlScript testfile result
-      testResults <- runTestLspSession testfile $ fmap damlFuncName $ damlFunctions result
+      testResults <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
 
       for_ features $ \feature -> do
         for_ (_feature_scenarios feature) $ \s@(Scenario name steps) -> do

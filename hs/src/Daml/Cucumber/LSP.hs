@@ -118,8 +118,8 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: FilePath -> [Text] -> IO (Map Text ([Text], Text))
-runTestLspSession filepath testNames = do
+runTestLspSession :: FilePath -> FilePath -> [Text] -> IO (Map Text ([Text], Text))
+runTestLspSession cwd filepath testNames = do
   pid <- getProcessID
   let
     reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
@@ -128,7 +128,7 @@ runTestLspSession filepath testNames = do
   testResults <- runHeadlessApp $ do
     pb <- getPostBuild
     rec
-      response <- damlIde sendReq
+      response <- damlIde cwd sendReq
 
       let
         sendReq = fmap snd $ fmapMaybe safeHead $ leftmost [updated remainingRequests]
@@ -220,10 +220,10 @@ instance FromJSON Response where
 damlPath :: FilePath
 damlPath = $(staticWhich "daml")
 
-damlIde :: (MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => Event t Request -> m (Event t [Response])
-damlIde rpcEvent = do
+damlIde :: (MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response])
+damlIde cwd rpcEvent = do
   let
-    damlProc = setCwd "../test" $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
+    damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
 
   let
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
