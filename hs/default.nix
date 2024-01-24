@@ -28,5 +28,6 @@ let
   };
 in
   { daml-cucumber = ghc.daml-cucumber;
+    daml-sdk = damlSdk.sdk;
     inherit ghc;
   }

@@ -140,11 +140,11 @@ runTestLspSession cwd filepath testNames = do
         shouldBeRemoved (Response resId _) (_, Request reqId _) = resId == reqId
         shouldBeRemoved _ _ = False
 
-      remainingRequests <- foldDyn ($) [] $ mergeWith (.) [ const allReqs <$ pb
-                                                          , mconcat . fmap (\x -> (filter (not . shouldBeRemoved x))) <$> response
-                                                          ]
+      remainingRequests <- foldDyn ($) allReqs $ mergeWith (.) [ const allReqs <$ pb
+                                                               ,  mconcat . fmap (\x -> (filter (not . shouldBeRemoved x))) <$> response
+                                                               ]
 
-      results <- foldDyn (<>) [] gotResults
+    results <- foldDyn (<>) [] gotResults
 
     let
       onlyPassIfDone results
@@ -176,6 +176,7 @@ data Request = Request
   { requestId :: Integer
   , requestRpc :: RPC Text
   }
+  deriving (Show)
 
 wrapRequest :: Request -> Text
 wrapRequest (Request rid (RPC method params)) =
@@ -222,27 +223,28 @@ instance FromJSON Response where
 damlPath :: FilePath
 damlPath = $(staticWhich "daml")
 
-damlIde :: (MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response])
+damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response])
 damlIde cwd rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
-
-  let
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
 
   process <- createProcess damlProc (ProcessConfig sendPipe never)
 
-  performEvent_ $ liftIO . BS.putStrLn <$> _process_stderr process
-  performEvent_ $ liftIO . BS.putStrLn <$> _process_stdout process
-  performEvent_ $ liftIO (putStrLn "Daml LSP Process died") <$ _process_exit process
   let
     stdout = _process_stdout process
 
-    thing f = case f of
+  performEvent_ $ liftIO . T.putStrLn . ("SENT: " <>) . T.pack . show <$> rpcEvent
+  performEvent_ $ liftIO . BS.putStrLn <$> _process_stderr process
+  performEvent_ $ liftIO . BS.putStrLn <$> stdout
+  performEvent_ $ liftIO (putStrLn "Daml LSP Process died") <$ _process_exit process
+
+  let
+    yieldIfNotEmpty f = case f of
       [] -> Nothing
       _ -> Just f
 
-    result = fmapMaybe thing $ catMaybes . fmap (decode . LBS.fromStrict) . filter (not . BS.null) . fmap (BS.dropWhileEnd (/= '}') . BS.strip . BS.dropWhile (/= '{')) . BS.split '\n' <$> stdout
+    result = fmapMaybe yieldIfNotEmpty $ catMaybes . fmap (decode . LBS.fromStrict) . filter (not . BS.null) . fmap (BS.dropWhileEnd (/= '}') . BS.strip . BS.dropWhile (/= '{')) . BS.split '\n' <$> stdout
   pure result
 
 mkDidOpenUri :: Text -> RPC Text
