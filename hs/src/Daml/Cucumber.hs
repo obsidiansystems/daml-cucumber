@@ -154,7 +154,7 @@ generateDamlSource stepMapping features = do
         let
           Just (StepFunc file fname) = Map.lookup step stepMapping
         modify $ addImport $ T.pack file
-        pure ["debug \"" <> T.pack (prettyPrintStep step) <> "\"", fname]
+        pure [fname, "debug \"" <> T.pack (prettyPrintStep step) <> "\""]
 
       modify $ addFunction $ DamlFunc (getScenarioFunctionName scenario) fnames
   pure ()

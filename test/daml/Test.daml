@@ -43,8 +43,6 @@ testMultipleScenariosInOneTest = do
   step Then "he also did something"
   pure ()
 
-data Owner = Cat
-
 data AnimalCategory
   = Dog
   | Cat
@@ -65,7 +63,7 @@ data AnimalType
   = Mammal
   | Salad
   | Bird
-  | Toaster
+  | NotToaster
   deriving (Enum, Bounded)
 
 instance Show AnimalType where
@@ -73,8 +71,27 @@ instance Show AnimalType where
     Mammal -> "mammal"
     Salad -> "salad"
     Bird -> "bird"
-    Toaster -> "toaster"
+    NotToaster -> "toaster"
 
+-- Given there is a animal and a type
+a: Tester ()
+a = do
+  pure ()
+
+-- Then the Dog is pretty cool I guess
+b: Tester ()
+b = do
+  pure ()
+
+-- And the Cat is a toaster
+c: Tester ()
+c = do
+  pure ()
+
+-- And the Dog is a mammal
+d: Tester ()
+d = do
+  pure ()
 
 -- Given a party
 givenAParty: Tester ()
@@ -126,7 +143,8 @@ thenNotImplemented = pure ()
 
 -- Then well he did a thing
 thenWellHeDidAThing : Tester ()
-thenWellHeDidAThing = pure ()
+thenWellHeDidAThing = do
+  error "No he didn't"
 
 -- And the Parrot is a Salad
 andTheIden : Tester ()

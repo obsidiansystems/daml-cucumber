@@ -1,10 +1,14 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Daml.Cucumber.LSP where
 
 import Debug.Trace
+import Data.Maybe
 import Data.Map (Map)
+import Control.Monad
+import Control.Applicative
 import qualified Data.Map as Map
 import Control.Monad.IO.Class
 import Control.Monad.Fix
@@ -12,13 +16,14 @@ import Reflex.Host.Headless
 import Reflex.Process
 import Reflex.Process.Lines
 import Data.Aeson
+import Data.Aeson.Types
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified System.Process as Proc
 import System.Posix.Process
 import System.Posix.Types
-import Reflex
+import Reflex hiding (Request, Response)
 import Reflex.Process
 import System.IO
 import qualified Data.Text.IO as T
@@ -43,11 +48,34 @@ import Text.HTML.TagSoup
 -- There is a Trace: that has the steps that ran, so we can leverage that to know what step failed
 
 
-data TestResult = TestResult
-  { testResultScenarioFunctionName :: Text
-  , testResultTraces :: [Text]
+-- data TestResult = TestResult
+--   { testResultScenarioFunctionName :: Text
+--   , testResultTraces :: [Text]
+--
+--   -- If there is a note it essentially failed...
+--   , testResultNote :: Maybe Text
+--   }
+--   deriving (Show)
+
+data RanTest = RanTest
+  { ranTestTraces :: [Text]
   }
   deriving (Show)
+
+data TestResponse = TestResponse
+  { testResponseScenarioFunctionName :: Text
+  , testResponseResult :: TestResult
+  }
+  deriving (Show)
+
+data TestResult
+  = TestResultRan RanTest
+  | TestResultDoesn'tCompile Text
+  deriving (Show)
+
+getTraces :: TestResult -> [Text]
+getTraces (TestResultRan (RanTest traces)) = traces
+getTraces _ = []
 
 exampleTrace :: Text
 exampleTrace = "Transactions: Active contracts: Return value: {}Trace: \\\"Given a party\\\"  \\\"When the party creates contract X\\\"  \\\"Then Contract X is created\\\""
@@ -69,23 +97,61 @@ parseTraces input
   | otherwise = parseTraces $ T.drop 1 str
   where
     delim = "\""
-    otherDelim = "&quot;"
 
     str = T.strip input
 
 instance FromJSON TestResult where
-  parseJSON = withObject "Test Result" $ \o -> do
-    params <- o .: "params"
-    contents <- params .: "contents"
-    uri <- params .: "uri"
-    let
-      tagText = extractData $ parseTags contents
-      traces = parseTraces tagText
-
-      funcName = T.drop 1 . T.dropWhile (/= '=') . T.dropWhile (/= '&') $ uri
-    pure $ TestResult funcName traces
+  parseJSON = withObject "Test Result" $ \params -> do
+    parseRan params <|> parseCompileFail params
     where
-       extractData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-code transaction")] :: Tag Text))
+      parseRan params = do
+        contents <- params .: "contents"
+        let
+          tagText = extractData $ parseTags contents
+          traces = parseTraces tagText
+        pure $ TestResultRan $ RanTest traces
+
+      parseCompileFail params = do
+        note <- params .: "note"
+        pure $ TestResultDoesn'tCompile $ extractNoteData $ parseTags note
+
+      parseFunctionName params = do
+        T.drop 1 . T.dropWhile (/= '=') . T.dropWhile (/= '&') <$> params .: "uri"
+
+      extractData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-code transaction")] :: Tag Text))
+      extractNoteData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-hl-warning")] :: Tag Text))
+
+instance FromJSON TestResponse where
+  parseJSON = withObject "Test Response" $ \params -> do
+    fname <- parseFunctionName params
+    inner <- parseRan params <|> parseCompileFail params
+    pure $ TestResponse fname inner
+    where
+      parseRan params = do
+        contents <- params .: "contents"
+        let
+          tagText = extractData $ parseTags contents
+          traces = parseTraces tagText
+        pure $ TestResultRan $ RanTest traces
+
+      parseCompileFail params = do
+        note <- params .: "note"
+        pure $ TestResultDoesn'tCompile $ extractNoteData $ parseTags note
+
+      parseFunctionName params = do
+        T.drop 1 . T.dropWhile (/= '=') . T.dropWhile (/= '&') <$> params .: "uri"
+
+      extractData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-code transaction")] :: Tag Text))
+      extractNoteData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-hl-warning")] :: Tag Text))
+
+getRPC :: Response -> Maybe (RPC Value)
+getRPC (Notification rpc) = Just rpc
+getRPC (Response _ rpc) = Just rpc
+getRPC _ = Nothing
+
+getTestResponse :: RPC Value -> Maybe TestResponse
+getTestResponse =
+  parseMaybe parseJSON . rpcParams
 
 setCwd :: FilePath -> Proc.CreateProcess -> Proc.CreateProcess
 setCwd fp cp = cp { Proc.cwd = Just fp }
@@ -97,31 +163,45 @@ runTestLspSession :: FilePath -> [Text] -> IO (Map Text [Text])
 runTestLspSession filepath testNames = do
   pid <- getProcessID
   let
-    reqs = fmap (\(reqId, r) -> makeReq $ mkDidOpenUri reqId $ mkTestUri filepath r) $ zip [1..] testNames
-    allReqs = fmap makeReq $ (mkInitPayload 0 pid : reqs)
+    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
+    allReqs = ("Init", Request 0 (mkInitPayload pid)) : reqs
 
   testResults <- runHeadlessApp $ do
     pb <- getPostBuild
     rec
-      gotResult <- damlIde $ fmapMaybe safeHead $ leftmost [updated remainingRequests]
+      response <- damlIde sendReq
+
+      let
+        sendReq = fmap snd $ fmapMaybe safeHead $ leftmost [updated remainingRequests]
+        gotResults = catMaybes . fmap (getTestResponse <=< getRPC) <$> response
+
+        shouldBeRemoved Init ("Init", _) = True
+        -- shouldBeRemoved (Notification rpc) (fname, Request reqId _) = case getTestResponse rpc of
+        --   Just (TestResponse name _) -> trace ("We should remove: " <> T.unpack fname <> " " <> show reqId ) $ fname == name
+        --   _ -> False
+        shouldBeRemoved (Response resId _) (_, Request reqId _) = resId == reqId
+        shouldBeRemoved _ _ = False
 
       remainingRequests <- foldDyn ($) [] $ mergeWith (.) [ const allReqs <$ pb
-                                                          , drop 1 <$ gotResult
+                                                          , mconcat . fmap (\x -> (filter (not . shouldBeRemoved x))) <$> response
+                                                          -- , mconcat . fmap (\x -> [filter (not . shouldBeRemoved x)]) <$> response
                                                           ]
 
-      results <- foldDyn (:) [] gotResult
-
-    performEvent_ $ liftIO . putStrLn . ("SEND" <> ) . show . length <$> (updated remainingRequests)
-    -- performEvent_ $ liftIO . putStrLn . ("UPDATED" <> ) . show <$> (fmapMaybe safeHead $ updated remainingRequests)
+      results <- foldDyn (<>) [] gotResults
+    -- performEvent_ $ liftIO . T.putStrLn . ("HAVE: " <> ) . tShow . requestId <$> update
+    -- performEvent_ $ liftIO . T.putStrLn . ("SENT: " <> ) . tShow . requestId <$> sendReq
+    -- performEvent_ $ liftIO . T.putStrLn . ("\nGOT: " <> ) . (<> "\n") . tShow . getRPC <$> response
+    -- performEvent_ $ liftIO . T.putStrLn . ("\n\n\nHAVE: " <> ) . (<> "\n\n\n") . tShow . getRPC <$> response
+    -- performEvent_ $ liftIO . T.putStrLn . ("\n\n\nBECAME: " <> ) . (<> "\n\n\n") . tShow . (getTestResponse <=< getRPC) <$> response
+    -- performEvent_ $ liftIO . T.putStrLn . ("\n\n\nHAVE: " <> ) . (<> "\n\n\n") . tShow . length <$> updated results
 
     let
       onlyPassIfDone results
-        | all (\n -> any (\x -> testResultScenarioFunctionName x == n) results) testNames = Just results
+        | all (\n -> any (\x -> testResponseScenarioFunctionName x == n) results) testNames = Just results
         | otherwise = Nothing
 
     pure $ fmapMaybe onlyPassIfDone $ updated results
-  putStrLn . show $ testResults
-  pure $ mconcat $ fmap (\(TestResult name traces) -> Map.singleton name traces) testResults
+  pure $ mconcat $ fmap (\(TestResponse name result) -> Map.singleton name $ getTraces result) testResults
 
 safeHead :: [a] -> Maybe a
 safeHead (a:_) = Just a
@@ -141,73 +221,116 @@ makeReq body =
 crlf :: Text
 crlf = "\r\n"
 
--- TODO(skylar): Generate this!
-testUri :: Text
-testUri = "daml://compiler?file=.%2Fdaml%2FGenerated.daml&top-level-decl=aContractCanMaybeBeCreated";
+data Request = Request
+  { requestId :: Integer
+  , requestRpc :: RPC Text
+  }
 
-damlIde :: (MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => Event t Text -> m (Event t TestResult)
-damlIde rpcEvent = do
-  -- pb <- getPostBuild
-  let
-    sendPipe = fmap (SendPipe_Message . T.encodeUtf8) rpcEvent
-
-    damlProc = setCwd "../test" $ Proc.proc "daml" ["ide", "--debug", "--scenarios", "yes"]
-
-  -- holdDyn [] bu
-  process <- createProcess damlProc (ProcessConfig sendPipe never)
-
-  let
-    stdout = _process_stdout process
-
-  -- dReady <- holdDyn False never
-  performEvent_ $ liftIO . BS.putStrLn <$> stdout
-  pure $ fmapMaybe (decode . LBS.dropWhile (/= '{') . LBS.fromStrict) stdout
-
-mkDidOpenUri :: Int -> Text -> Text
-mkDidOpenUri theId uri = do
-  [text|
-      {
-          "jsonrpc": "2.0",
-          "id": $idStr,
-          "method": "textDocument/didOpen",
-          "params": {
-              "textDocument": {
-                  "uri": "$uri",
-                  "languageId": "",
-                  "version": 0,
-                  "text": ""
-              }
-          }
-      }
-  |]
-  where
-    idStr = tShow theId
-
-mkInitPayload :: Int -> ProcessID -> Text
-mkInitPayload theId pid =
+wrapRequest :: Request -> Text
+wrapRequest (Request rid (RPC method params)) =
   [text|
     {
       "jsonrpc": "2.0",
       "id": $idStr,
-      "method": "initialize",
-      "params": {
-        "processId": $pidStr,
-        "capabilities": {
-          "window": {
-            "showMessage": {
-              "messageActionItem": {
-                "additionalPropertiesSupport": true
-              }
-            },
-            "workDoneProgress": true,
-            "showDocument": {
-              "support": true
-            }
-          }
-        }
-      }
+      "method": "$method",
+      "params": $params
     }
   |]
   where
+    idStr = tShow rid
+
+data RPC a = RPC
+  { rpcMethod :: Text
+  , rpcParams :: a
+  }
+  deriving (Eq, Show)
+
+data Response
+  = Init
+  | Notification (RPC Value)
+  | Response Integer (RPC Value)
+  deriving (Eq, Show)
+
+prettyPrintResponseType :: Response -> Text
+prettyPrintResponseType Init = "Init"
+prettyPrintResponseType (Notification (RPC method _)) = "Notification: " <> method
+prettyPrintResponseType (Response rid (RPC method _)) = "Response: " <> tShow rid <> method
+
+instance FromJSON Response where
+  parseJSON = withObject "Response" $ \o -> do
+    parseInit o <|> parseResponse o <|> parseNotification o
+    where
+      parseInit o = do
+        _ :: Value <- o .: "result"
+        pure Init
+
+      parseRPC o = do
+        RPC <$> o .: "method" <*> o .: "params"
+
+      parseResponse o = do
+        Response <$> o .: "id" <*> parseRPC o
+
+      parseNotification o = do
+        Notification <$> parseRPC o
+
+damlIde :: (MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => Event t Request -> m (Event t [Response])
+damlIde rpcEvent = do
+  let
+    damlProc = setCwd "../test" $ Proc.proc "daml" ["ide", "--debug", "--scenarios", "yes"]
+
+  let
+    sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
+
+  process <- createProcess damlProc (ProcessConfig sendPipe never)
+  let
+    stdout = _process_stdout process
+
+    thing f = case f of
+      [] -> Nothing
+      _ -> Just f
+
+    result = fmapMaybe thing $ catMaybes . fmap (decode . LBS.fromStrict) . filter (not . BS.null) . fmap (BS.dropWhileEnd (/= '}') . BS.strip . BS.dropWhile (/= '{')) . BS.split '\n' <$> stdout
+
+  --  performEvent_ $ liftIO . mapM_ T.putStrLn . fmap tShow . filter (not . BS.null) . fmap (BS.dropWhile (/= '{')) . BS.split '\n' <$> stdout
+  pure result
+
+mkDidOpenUri :: Text -> RPC Text
+mkDidOpenUri uri =
+  RPC "textDocument/didOpen" params
+  where
+    params =
+      [text|
+        {
+          "textDocument": {
+            "uri": "$uri",
+            "languageId": "",
+            "version": 0,
+            "text": ""
+          }
+        }
+      |]
+
+mkInitPayload :: ProcessID -> RPC Text
+mkInitPayload pid =
+  RPC "initialize" params
+  where
+    params =
+      [text|
+        {
+          "processId": $pidStr,
+          "capabilities": {
+            "window": {
+              "showMessage": {
+                "messageActionItem": {
+                  "additionalPropertiesSupport": true
+                }
+              },
+              "workDoneProgress": true,
+              "showDocument": {
+                "support": true
+              }
+            }
+          }
+        }
+      |]
     pidStr = tShow pid
-    idStr = tShow theId
