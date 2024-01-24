@@ -33,30 +33,6 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import Text.HTML.TagSoup
 
--- Syntax error
--- method textDocument/publishDiagnostics
--- params.diagnostics [message uri]
-
--- Otherwise we get a responseContent that must be parsed for failure
--- the exception is in a message
-
--- Check if response content has failed or error, and also look for the completed steps!
-
--- If there is an error, we see a span with class da-hl-error
--- The results go into  div with class da-code transaction
--- What about auth errors?
--- There is a Trace: that has the steps that ran, so we can leverage that to know what step failed
-
-
--- data TestResult = TestResult
---   { testResultScenarioFunctionName :: Text
---   , testResultTraces :: [Text]
---
---   -- If there is a note it essentially failed...
---   , testResultNote :: Maybe Text
---   }
---   deriving (Show)
-
 data RanTest = RanTest
   { ranTestTraces :: [Text]
   , ranTestError :: Text
@@ -98,29 +74,7 @@ parseTraces input
   | otherwise = parseTraces $ T.drop 1 str
   where
     delim = "\""
-
     str = T.strip input
-
-instance FromJSON TestResult where
-  parseJSON = withObject "Test Result" $ \params -> do
-    parseRan params <|> parseCompileFail params
-    where
-      parseRan params = do
-        contents <- params .: "contents"
-        let
-          tagText = extractData $ parseTags contents
-          traces = trace (T.unpack contents) $ parseTraces tagText
-        pure $ TestResultRan $ RanTest traces ""
-
-      parseCompileFail params = do
-        note <- params .: "note"
-        pure $ TestResultDoesn'tCompile $ extractNoteData $ parseTags note
-
-      parseFunctionName params = do
-        T.drop 1 . T.dropWhile (/= '=') . T.dropWhile (/= '&') <$> params .: "uri"
-
-      extractData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-code transaction")] :: Tag Text))
-      extractNoteData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-hl-warning")] :: Tag Text))
 
 instance FromJSON TestResponse where
   parseJSON = withObject "Test Response" $ \params -> do
@@ -180,24 +134,14 @@ runTestLspSession filepath testNames = do
         gotResults = catMaybes . fmap (getTestResponse <=< getRPC) <$> response
 
         shouldBeRemoved Init ("Init", _) = True
-        -- shouldBeRemoved (Notification rpc) (fname, Request reqId _) = case getTestResponse rpc of
-        --   Just (TestResponse name _) -> trace ("We should remove: " <> T.unpack fname <> " " <> show reqId ) $ fname == name
-        --   _ -> False
         shouldBeRemoved (Response resId _) (_, Request reqId _) = resId == reqId
         shouldBeRemoved _ _ = False
 
       remainingRequests <- foldDyn ($) [] $ mergeWith (.) [ const allReqs <$ pb
                                                           , mconcat . fmap (\x -> (filter (not . shouldBeRemoved x))) <$> response
-                                                          -- , mconcat . fmap (\x -> [filter (not . shouldBeRemoved x)]) <$> response
                                                           ]
 
       results <- foldDyn (<>) [] gotResults
-    -- performEvent_ $ liftIO . T.putStrLn . ("HAVE: " <> ) . tShow . requestId <$> update
-    -- performEvent_ $ liftIO . T.putStrLn . ("SENT: " <> ) . tShow . requestId <$> sendReq
-    -- performEvent_ $ liftIO . T.putStrLn . ("\nGOT: " <> ) . (<> "\n") . tShow . getRPC <$> response
-    -- performEvent_ $ liftIO . T.putStrLn . ("\n\n\nHAVE: " <> ) . (<> "\n\n\n") . tShow . getRPC <$> response
-    -- performEvent_ $ liftIO . T.putStrLn . ("\n\n\nBECAME: " <> ) . (<> "\n\n\n") . tShow . (getTestResponse <=< getRPC) <$> response
-    -- performEvent_ $ liftIO . T.putStrLn . ("\n\n\nHAVE: " <> ) . (<> "\n\n\n") . tShow . length <$> updated results
 
     let
       onlyPassIfDone results
@@ -254,11 +198,6 @@ data Response
   | Notification (RPC Value)
   | Response Integer (RPC Value)
   deriving (Eq, Show)
-
-prettyPrintResponseType :: Response -> Text
-prettyPrintResponseType Init = "Init"
-prettyPrintResponseType (Notification (RPC method _)) = "Notification: " <> method
-prettyPrintResponseType (Response rid (RPC method _)) = "Response: " <> tShow rid <> method
 
 instance FromJSON Response where
   parseJSON = withObject "Response" $ \o -> do

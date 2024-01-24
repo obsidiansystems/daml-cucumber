@@ -99,7 +99,6 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
       let
         (_, result) = runState (generateDamlSource stepMapping features) (DamlScript mempty mempty)
         testfile = (damlFolder </> "Generated.daml")
-      putStrLn $ show result
       writeDamlScript testfile result
       testResults <- runTestLspSession testfile $ fmap damlFuncName $ damlFunctions result
 
