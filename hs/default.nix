@@ -1,8 +1,9 @@
-{}:
+{ nix-daml-sdk ? import ../nix/nix-daml-sdk { sdkVersion = "2.6.5"; }
+}:
 let
   platform =  import ../nix/reflex-platform {};
   pkgs = platform.nixpkgs;
-  damlSdk = import ../nix/nix-daml-sdk {};
+  damlSdk = nix-daml-sdk;
   src = builtins.filterSource (path: type: !(builtins.elem (baseNameOf path) [
       "release.nix"
       ".git"
