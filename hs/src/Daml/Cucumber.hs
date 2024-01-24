@@ -109,7 +109,8 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
           let
              fname = getScenarioFunctionName s
 
-             resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:")) $ Map.lookup fname testResults
+             errors = maybe "" snd $ Map.lookup fname testResults
+             resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
              getResult s = Map.lookup s resultMap
 
           for_ steps $ \s -> do
@@ -118,7 +119,9 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
               result = getResult $ T.pack pretty
             case result of
               Just True -> putStrLn $ ("  " <> pretty <> " => OK")
-              Just False -> putStrLn $ ("  " <> pretty <> " => FAILED")
+              Just False -> do
+                putStrLn $ "  " <> pretty <> " => FAILED"
+                T.putStrLn $ "    " <> errors
               _ -> putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
       pure ()
   pure ()

@@ -59,6 +59,7 @@ import Text.HTML.TagSoup
 
 data RanTest = RanTest
   { ranTestTraces :: [Text]
+  , ranTestError :: Text
   }
   deriving (Show)
 
@@ -73,9 +74,9 @@ data TestResult
   | TestResultDoesn'tCompile Text
   deriving (Show)
 
-getTraces :: TestResult -> [Text]
-getTraces (TestResultRan (RanTest traces)) = traces
-getTraces _ = []
+getTracesAndErrors :: TestResult -> ([Text], Text)
+getTracesAndErrors (TestResultRan (RanTest traces errors)) = (traces, errors)
+getTracesAndErrors _ = ([], "")
 
 exampleTrace :: Text
 exampleTrace = "Transactions: Active contracts: Return value: {}Trace: \\\"Given a party\\\"  \\\"When the party creates contract X\\\"  \\\"Then Contract X is created\\\""
@@ -108,8 +109,8 @@ instance FromJSON TestResult where
         contents <- params .: "contents"
         let
           tagText = extractData $ parseTags contents
-          traces = parseTraces tagText
-        pure $ TestResultRan $ RanTest traces
+          traces = trace (T.unpack contents) $ parseTraces tagText
+        pure $ TestResultRan $ RanTest traces ""
 
       parseCompileFail params = do
         note <- params .: "note"
@@ -132,7 +133,10 @@ instance FromJSON TestResponse where
         let
           tagText = extractData $ parseTags contents
           traces = parseTraces tagText
-        pure $ TestResultRan $ RanTest traces
+
+          (errors, _) = T.breakOn "Ledger time:" tagText
+
+        pure $ TestResultRan $ RanTest traces errors
 
       parseCompileFail params = do
         note <- params .: "note"
@@ -159,7 +163,7 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: FilePath -> [Text] -> IO (Map Text [Text])
+runTestLspSession :: FilePath -> [Text] -> IO (Map Text ([Text], Text))
 runTestLspSession filepath testNames = do
   pid <- getProcessID
   let
@@ -201,7 +205,7 @@ runTestLspSession filepath testNames = do
         | otherwise = Nothing
 
     pure $ fmapMaybe onlyPassIfDone $ updated results
-  pure $ mconcat $ fmap (\(TestResponse name result) -> Map.singleton name $ getTraces result) testResults
+  pure $ mconcat $ fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result) testResults
 
 safeHead :: [a] -> Maybe a
 safeHead (a:_) = Just a
@@ -290,8 +294,6 @@ damlIde rpcEvent = do
       _ -> Just f
 
     result = fmapMaybe thing $ catMaybes . fmap (decode . LBS.fromStrict) . filter (not . BS.null) . fmap (BS.dropWhileEnd (/= '}') . BS.strip . BS.dropWhile (/= '{')) . BS.split '\n' <$> stdout
-
-  --  performEvent_ $ liftIO . mapM_ T.putStrLn . fmap tShow . filter (not . BS.null) . fmap (BS.dropWhile (/= '{')) . BS.split '\n' <$> stdout
   pure result
 
 mkDidOpenUri :: Text -> RPC Text

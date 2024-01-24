@@ -144,7 +144,10 @@ thenNotImplemented = pure ()
 -- Then well he did a thing
 thenWellHeDidAThing : Tester ()
 thenWellHeDidAThing = do
-  error "No he didn't"
+  liftScript $ do
+    allocatePartyWithHint "X" (PartyIdHint "X")
+    allocatePartyWithHint "X" (PartyIdHint "X")
+  pure ()
 
 -- And the Parrot is a Salad
 andTheIden : Tester ()
