@@ -229,6 +229,9 @@ damlIde cwd rpcEvent = do
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
 
   process <- createProcess damlProc (ProcessConfig sendPipe never)
+
+  performEvent_ $ liftIO . BS.putStrLn <$> _process_stderr process
+  performEvent_ $ liftIO . BS.putStrLn <$> _process_stdout process
   let
     stdout = _process_stdout process
 
