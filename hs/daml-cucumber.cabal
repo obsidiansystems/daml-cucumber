@@ -43,8 +43,9 @@ library
                     , mtl
                     , neat-interpolation
                     , tagsoup
---                    , lsp-client
---                    , lsp-types
+                    , unix
+--                  , lsp-client
+--                  , lsp-types
     hs-source-dirs:   src
     default-language: Haskell2010
     default-extensions:
