@@ -30,7 +30,6 @@ import Reflex.Process
 import Reflex.Process.Lines
 import System.Process
 import qualified System.Process as Proc
-import System.Which
 import System.Exit
 import System.Directory
 import System.FilePath hiding (hasExtension)
@@ -44,9 +43,6 @@ data Opts = Opts
 
 writeFeatureJson :: FilePath -> Feature -> IO ()
 writeFeatureJson path f = LBS.writeFile path (encode f)
-
-daml :: FilePath
-daml = $(staticWhich "daml")
 
 -- A file like .daml counts as having the extension .daml even though that isn't correct!
 -- thus this function:

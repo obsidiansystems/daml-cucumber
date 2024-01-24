@@ -6,6 +6,7 @@ module Daml.Cucumber.LSP where
 
 import Debug.Trace
 import Data.Maybe
+import System.Which
 import Data.Map (Map)
 import Control.Monad
 import Control.Applicative
@@ -216,10 +217,13 @@ instance FromJSON Response where
       parseNotification o = do
         Notification <$> parseRPC o
 
+damlPath :: FilePath
+damlPath = $(staticWhich "daml")
+
 damlIde :: (MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => Event t Request -> m (Event t [Response])
 damlIde rpcEvent = do
   let
-    damlProc = setCwd "../test" $ Proc.proc "daml" ["ide", "--debug", "--scenarios", "yes"]
+    damlProc = setCwd "../test" $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
 
   let
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
