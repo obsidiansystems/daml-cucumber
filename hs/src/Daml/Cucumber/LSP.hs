@@ -33,23 +33,25 @@ import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import Text.HTML.TagSoup
+import qualified Data.Set as Set
+import Data.Set (Set)
 
 data RanTest = RanTest
   { ranTestTraces :: [Text]
   , ranTestError :: Text
   }
-  deriving (Show)
+  deriving (Eq, Ord, Show)
 
 data TestResponse = TestResponse
   { testResponseScenarioFunctionName :: Text
   , testResponseResult :: TestResult
   }
-  deriving (Show)
+  deriving (Eq, Ord, Show)
 
 data TestResult
   = TestResultRan RanTest
   | TestResultDoesn'tCompile Text
-  deriving (Show)
+  deriving (Eq, Ord, Show)
 
 getTracesAndErrors :: TestResult -> ([Text], Text)
 getTracesAndErrors (TestResultRan (RanTest traces errors)) = (traces, errors)
@@ -129,11 +131,12 @@ runTestLspSession cwd filepath testNames = do
 
   testResults <- runHeadlessApp $ do
     pb <- getPostBuild
+
     rec
-      (response, hang) <- damlIde cwd sendReq
+      (response, currentResults) <- damlIde cwd sendReq
 
       let
-        sendReq = fmap snd $ fmapMaybe safeHead $ leftmost [updated remainingRequests]
+        sendReq = fmap snd $ leftmost [fmapMaybe safeHead $ updated remainingRequests ] -- , fmapMaybe safeHead $ nextReq <@ tick]
         gotResults = catMaybes . fmap (getTestResponse <=< getRPC) <$> response
 
         shouldBeRemoved Init ("Init", _) = True
@@ -141,18 +144,18 @@ runTestLspSession cwd filepath testNames = do
         shouldBeRemoved _ _ = False
 
       remainingRequests <- foldDyn ($) allReqs $ mergeWith (.) [ const allReqs <$ pb
-                                                               , const reqs <$ hang
-                                                               ,  mconcat . fmap (\x -> (filter (not . shouldBeRemoved x))) <$> response
+                                                               , drop 1 <$ response
                                                                ]
 
-    results <- foldDyn (<>) [] gotResults
-
     let
-      onlyPassIfDone results
-        | all (\n -> any (\x -> testResponseScenarioFunctionName x == n) results) testNames = Just results
-        | otherwise = Nothing
+      bounce :: Reflex t => (a -> Bool) -> Event t a -> Event t a
+      bounce f ev =
+        flip fmapMaybe ev $ \a -> case f a of
+          True -> Just a
+          False -> Nothing
 
-    pure $ fmapMaybe onlyPassIfDone $ updated results
+    pure $ bounce ((>2) . length) $ updated $ Set.toList <$> currentResults
+      --fmapMaybe onlyPassIfDone $ updated results
   pure $ mconcat $ fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result) testResults
 
 safeHead :: [a] -> Maybe a
@@ -177,7 +180,7 @@ data Request = Request
   { requestId :: Integer
   , requestRpc :: RPC Text
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 wrapRequest :: Request -> Text
 wrapRequest (Request rid (RPC method params)) =
@@ -224,7 +227,7 @@ instance FromJSON Response where
 damlPath :: FilePath
 damlPath = $(staticWhich "daml")
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response], Event t ())
+damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response], Dynamic t (Set TestResponse))
 damlIde cwd rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
@@ -234,7 +237,6 @@ damlIde cwd rpcEvent = do
 
   let
     stdout = _process_stdout process
-    parsed = parseResponses <$> stdout
 
     yieldIfNotEmpty f = case f of
       [] -> Nothing
@@ -244,41 +246,53 @@ damlIde cwd rpcEvent = do
       [] -> Just ()
       _ -> Nothing
 
-    result = fmapMaybe yieldIfNotEmpty parsed
-    hung = fmapMaybe yieldIfEmpty parsed
+  rec
+    buffer <- foldDyn ($) "" $ flip (<>) <$> stdout
 
-  performEvent_ $ liftIO . T.putStrLn . ("SENT: " <>) . T.pack . show <$> rpcEvent
-  performEvent_ $ liftIO . BS.putStrLn <$> _process_stderr process
-  performEvent_ $ liftIO . BS.putStrLn <$> stdout
-  performEvent_ $ liftIO (putStrLn "Daml LSP Process died") <$ _process_exit process
-  performEvent_ $ liftIO (putStrLn "HANG DETECTED") <$ hung
+    let
+      parseResult = parseBuffer <$> updated buffer
+      parsedResponses = fst <$> parseResult
 
-  pure (result, hung)
+      result = fmapMaybe yieldIfNotEmpty parsedResponses
+      hung = fmapMaybe yieldIfEmpty parsedResponses
 
-parseResponses :: BS.ByteString -> [Response]
-parseResponses = catMaybes . fmap (decode . LBS.fromStrict) . allDelimitedBlocks
+  pure (result, Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) . fst . parseBuffer <$> buffer)
 
-testBraces :: BS.ByteString
-testBraces = "{{{{{hello}}}}}{}{}"
+parseBuffer :: BS.ByteString -> ([Response], BS.ByteString)
+parseBuffer bs = (catMaybes . fmap decodeStrict $ allOfEm, rest)
+  where
+    (allOfEm, rest) = allDelimitedBlocks bs
 
-allDelimitedBlocks :: BS.ByteString -> [BS.ByteString]
-allDelimitedBlocks "" = []
-allDelimitedBlocks bs = case getDelimitedBlock bs of
-  ("", rest) ->  allDelimitedBlocks rest
-  (x, rest) ->  x : allDelimitedBlocks rest
+allDelimitedBlocks :: BS.ByteString -> ([BS.ByteString], BS.ByteString)
+allDelimitedBlocks "" = ([], "")
+allDelimitedBlocks bs =
+  case getDelimitedBlock bs of
+    ("", rest) -> ([], rest)
+    (x, rest) ->  let
+      (found, newRest) = allDelimitedBlocks rest
+      in
+      (x : found, newRest)
 
 getDelimitedBlock :: BS.ByteString -> (BS.ByteString, BS.ByteString)
 getDelimitedBlock input = case bsSafeHead fromFirstCurly of
   Just '{' ->
     let
       count = (findClosingDelimiter 1 0 $ BS.drop 1 fromFirstCurly) + 1
+      result = BS.take count fromFirstCurly
+
+      hasEndCurly = maybe False (=='}') $ bsSafeLast result
     in
-    (BS.take count fromFirstCurly, BS.drop count fromFirstCurly)
+    case hasEndCurly of
+       True -> (result, BS.drop (count + BS.length prefix) input)
+       _ -> ("", input)
+
   _ -> ("", fromFirstCurly)
   where
+    prefix = BS.takeWhile (not . isACurly) input
     fromFirstCurly = BS.dropWhile (not . isACurly) input
 
     findClosingDelimiter :: Int -> Int -> BS.ByteString -> Int
+    -- findClosingDelimiter _ _ "" = 0
     findClosingDelimiter 0 total _ = total
     findClosingDelimiter n total input = case bsSafeHead input of
       Just '{' ->
@@ -296,18 +310,23 @@ bsSafeHead bs
   | BS.null bs = Nothing
   | otherwise = Just $ BS.head bs
 
-test :: FilePath -> IO ()
-test fp = do
-  fileData <- BS.readFile fp
-  T.putStrLn $ tShow $ parseResponses fileData
+bsSafeLast :: BS.ByteString -> Maybe Char
+bsSafeLast bs
+  | BS.null bs = Nothing
+  | otherwise = Just $ BS.last bs
+
+-- test :: FilePath -> IO ()
+-- test fp = do
+--   fileData <- BS.readFile fp
+--   T.putStrLn $ tShow $ parseResponses fileData
   -- BS.writeFile (fp <> ".result") $ BS.intercalate "\n\n\n\n\n" $ BS.split '\n' $ fileData
   -- T.putStrLn $
 
 
-together :: IO ()
-together = do
-  test "../hangreq.txt"
-  test "../nothangreq.txt"
+-- together :: IO ()
+-- together = do
+--   test "../hangreq.txt"
+--   test "../nothangreq.txt"
   -- T.putStrLn $ tShow $ parseResponses fileData
 
 mkDidOpenUri :: Text -> RPC Text
