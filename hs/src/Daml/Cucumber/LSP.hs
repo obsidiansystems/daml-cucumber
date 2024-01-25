@@ -244,8 +244,63 @@ damlIde cwd rpcEvent = do
       [] -> Nothing
       _ -> Just f
 
-    result = fmapMaybe yieldIfNotEmpty $ catMaybes . fmap (decode . LBS.fromStrict) . filter (not . BS.null) . fmap (BS.dropWhileEnd (/= '}') . BS.strip . BS.dropWhile (/= '{')) . BS.split '\n' <$> stdout
+    result = fmapMaybe yieldIfNotEmpty $ parseResponses <$> stdout
   pure result
+
+parseResponses :: BS.ByteString -> [Response]
+parseResponses = catMaybes . fmap (decode . LBS.fromStrict) . allDelimitedBlocks
+
+testBraces :: BS.ByteString
+testBraces = "{{{{{hello}}}}}{}{}"
+
+allDelimitedBlocks :: BS.ByteString -> [BS.ByteString]
+allDelimitedBlocks "" = []
+allDelimitedBlocks bs = case getDelimitedBlock bs of
+  ("", rest) ->  allDelimitedBlocks rest
+  (x, rest) ->  x : allDelimitedBlocks rest
+
+getDelimitedBlock :: BS.ByteString -> (BS.ByteString, BS.ByteString)
+getDelimitedBlock input = case bsSafeHead fromFirstCurly of
+  Just '{' ->
+    let
+      count = (findClosingDelimiter 1 0 $ BS.drop 1 fromFirstCurly) + 1
+    in
+    (BS.take count fromFirstCurly, BS.drop count fromFirstCurly)
+  _ -> ("", fromFirstCurly)
+  where
+    fromFirstCurly = BS.dropWhile (not . isACurly) input
+
+    findClosingDelimiter :: Int -> Int -> BS.ByteString -> Int
+    findClosingDelimiter 0 total _ = total
+    findClosingDelimiter n total input = case bsSafeHead input of
+      Just '{' ->
+        findClosingDelimiter (n + 1) (total + 1) $ BS.drop 1 input
+      Just '}' ->
+        findClosingDelimiter (n - 1) (total + 1) $ BS.drop 1 input
+      Nothing -> total
+      _ -> findClosingDelimiter n (total + 1) $ BS.drop 1 input
+
+isACurly :: Char -> Bool
+isACurly = (\x -> x == '{' || x == '}')
+
+bsSafeHead :: BS.ByteString -> Maybe Char
+bsSafeHead bs
+  | BS.null bs = Nothing
+  | otherwise = Just $ BS.head bs
+
+test :: FilePath -> IO ()
+test fp = do
+  fileData <- BS.readFile fp
+  T.putStrLn $ tShow $ parseResponses fileData
+  -- BS.writeFile (fp <> ".result") $ BS.intercalate "\n\n\n\n\n" $ BS.split '\n' $ fileData
+  -- T.putStrLn $
+
+
+together :: IO ()
+together = do
+  test "../hangreq.txt"
+  test "../nothangreq.txt"
+  -- T.putStrLn $ tShow $ parseResponses fileData
 
 mkDidOpenUri :: Text -> RPC Text
 mkDidOpenUri uri =
