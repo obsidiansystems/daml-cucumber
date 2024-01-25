@@ -130,7 +130,7 @@ runTestLspSession cwd filepath testNames = do
   testResults <- runHeadlessApp $ do
     pb <- getPostBuild
     rec
-      response <- damlIde cwd sendReq
+      (response, hang) <- damlIde cwd sendReq
 
       let
         sendReq = fmap snd $ fmapMaybe safeHead $ leftmost [updated remainingRequests]
@@ -141,6 +141,7 @@ runTestLspSession cwd filepath testNames = do
         shouldBeRemoved _ _ = False
 
       remainingRequests <- foldDyn ($) allReqs $ mergeWith (.) [ const allReqs <$ pb
+                                                               , const reqs <$ hang
                                                                ,  mconcat . fmap (\x -> (filter (not . shouldBeRemoved x))) <$> response
                                                                ]
 
@@ -223,7 +224,7 @@ instance FromJSON Response where
 damlPath :: FilePath
 damlPath = $(staticWhich "daml")
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response])
+damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response], Event t ())
 damlIde cwd rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
@@ -233,19 +234,26 @@ damlIde cwd rpcEvent = do
 
   let
     stdout = _process_stdout process
+    parsed = parseResponses <$> stdout
+
+    yieldIfNotEmpty f = case f of
+      [] -> Nothing
+      _ -> Just f
+
+    yieldIfEmpty f = case f of
+      [] -> Just ()
+      _ -> Nothing
+
+    result = fmapMaybe yieldIfNotEmpty parsed
+    hung = fmapMaybe yieldIfEmpty parsed
 
   performEvent_ $ liftIO . T.putStrLn . ("SENT: " <>) . T.pack . show <$> rpcEvent
   performEvent_ $ liftIO . BS.putStrLn <$> _process_stderr process
   performEvent_ $ liftIO . BS.putStrLn <$> stdout
   performEvent_ $ liftIO (putStrLn "Daml LSP Process died") <$ _process_exit process
+  performEvent_ $ liftIO (putStrLn "HANG DETECTED") <$ hung
 
-  let
-    yieldIfNotEmpty f = case f of
-      [] -> Nothing
-      _ -> Just f
-
-    result = fmapMaybe yieldIfNotEmpty $ parseResponses <$> stdout
-  pure result
+  pure (result, hung)
 
 parseResponses :: BS.ByteString -> [Response]
 parseResponses = catMaybes . fmap (decode . LBS.fromStrict) . allDelimitedBlocks
