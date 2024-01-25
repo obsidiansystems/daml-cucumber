@@ -133,19 +133,22 @@ runTestLspSession cwd filepath testNames = do
     pb <- getPostBuild
 
     rec
-      (response, currentResults) <- damlIde cwd sendReq
+      (response, currentResults, currentResponses) <- damlIde cwd sendReq
 
       let
-        sendReq = fmap snd $ leftmost [fmapMaybe safeHead $ updated remainingRequests ] -- , fmapMaybe safeHead $ nextReq <@ tick]
-        gotResults = catMaybes . fmap (getTestResponse <=< getRPC) <$> response
+        getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
+        getNextRequest rs responses = fmap snd $ safeHead $ filter (not . filterFunc) rs
+          where
+            filterFunc r = any (flip shouldBeRemoved r) responses
 
+        nextReq = getNextRequest allReqs <$> currentResponses
+
+        sendReq = fmapMaybe id $ leftmost [updated nextReq, current nextReq <@ pb]
+
+        shouldBeRemoved :: Response -> (Text, Request) -> Bool
         shouldBeRemoved Init ("Init", _) = True
         shouldBeRemoved (Response resId _) (_, Request reqId _) = resId == reqId
         shouldBeRemoved _ _ = False
-
-      remainingRequests <- foldDyn ($) allReqs $ mergeWith (.) [ const allReqs <$ pb
-                                                               , drop 1 <$ response
-                                                               ]
 
     let
       bounce :: Reflex t => (a -> Bool) -> Event t a -> Event t a
@@ -154,8 +157,7 @@ runTestLspSession cwd filepath testNames = do
           True -> Just a
           False -> Nothing
 
-    pure $ bounce ((>2) . length) $ updated $ Set.toList <$> currentResults
-      --fmapMaybe onlyPassIfDone $ updated results
+    pure $ bounce ((== length reqs) . length) $ updated $ Set.toList <$> currentResults
   pure $ mconcat $ fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result) testResults
 
 safeHead :: [a] -> Maybe a
@@ -227,7 +229,7 @@ instance FromJSON Response where
 damlPath :: FilePath
 damlPath = $(staticWhich "daml")
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response], Dynamic t (Set TestResponse))
+damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response], Dynamic t (Set TestResponse), Dynamic t [Response])
 damlIde cwd rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
@@ -253,10 +255,12 @@ damlIde cwd rpcEvent = do
       parseResult = parseBuffer <$> updated buffer
       parsedResponses = fst <$> parseResult
 
+      dResponses = fst . parseBuffer <$> buffer
+
       result = fmapMaybe yieldIfNotEmpty parsedResponses
       hung = fmapMaybe yieldIfEmpty parsedResponses
 
-  pure (result, Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) . fst . parseBuffer <$> buffer)
+  pure (result, Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses, dResponses)
 
 parseBuffer :: BS.ByteString -> ([Response], BS.ByteString)
 parseBuffer bs = (catMaybes . fmap decodeStrict $ allOfEm, rest)
