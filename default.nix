@@ -38,7 +38,19 @@ let
   };
 
   outputs = builtins.listToAttrs versions;
+
+  genScriptForPush = let
+    oVals = builtins.attrValues outputs;
+    forVersions = f: builtins.map (x: f x) oVals;
+    loadContainers = forVersions (x: ''
+      docker load -i ${x.container}
+    '');
+    pushContainers = forVersions (x: ''
+      docker push daml-cucumber:${x.version}
+    '');
+  in pkgs.writeShellScriptBin "docker-push-generated" (builtins.concatStringsSep "\n" (loadContainers ++ pushContainers));
 in {
   container = outputs.daml-265.container;
   recurseForDerivations = true;
+  pushScript = genScriptForPush;
 } // outputs
