@@ -148,20 +148,3 @@ instance (ToJSON a, ToJSON b) => ToJSON (DamlEither a b) where
 
 instance (FromJSON a, FromJSON b) => FromJSON (DamlEither a b) where
   parseJSON = genericParseJSON damlEitherJsonOpts
-
--- data Message = Message
---   { _message_scenario :: Text
---   , _message_step :: Maybe Step
---   , _message_result :: Maybe (DamlEither Text ())
---   }
---   deriving (Eq, Show, Read, Generic)
---
--- instance ToJSON Message where
---   toEncoding = genericToEncoding (defaultOptions {
---     fieldLabelModifier = drop (T.length "_message_")
---   })
---
--- instance FromJSON Message where
---   parseJSON = genericParseJSON (defaultOptions {
---     fieldLabelModifier = drop (T.length "_message_")
---   })
