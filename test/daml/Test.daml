@@ -1,24 +1,162 @@
 module Test where
 
-import Cucumber
+import DA.Foldable
+import DA.Stack
+import DA.Action
+import DA.Set
 import Daml.Script
+import DA.Exception
+import DA.Either
+import StateT
+import DA.Action.State.Class
+import Tester
 
-template X
-  with
-    owner : Party
-  where
-    signatory owner
+main : Script [Message]
+main = do
+  (_, ctx) <- runTester allTests
+  pure ctx.results
 
-main : Feature -> Script [[Message]]
-main = runTests $ \hash scenarioName step -> do
-  case step of
-    Step Given "a party" -> do
-      allocateParty (p1 hash)
-      pure ()
-    Step When "the party creates contract X" -> do
-      parties <- listKnownParties
-      debug parties
-      pure ()
-    s -> error $ "Not implemented: " <> show s
+allTests: Tester ()
+allTests = do
+  testStepsCanOnlyBeDefinedOnce
+  testMultipleScenariosInOneTest
+  testScenarioOutlineByJustEnumerating
+
+testStepsCanOnlyBeDefinedOnce: Tester ()
+testStepsCanOnlyBeDefinedOnce = do
+  step Given "a party"
+  liftScript $ allocateParty "alice"
+  step Given "a party"
+  step When "the party creates contract X"
+  parties <- liftScript listKnownParties
+  step Then "Contract X is created"
+
+testMultipleScenariosInOneTest: Tester ()
+testMultipleScenariosInOneTest = do
+  scenario' "A something that can be tested"
+   -- ^ Note you can optionally define the Scenario if you wanna, though you don't have to
+  step Given "a guy does a thing"
+  step Then "well he did a thing"
+
+  scenario' "Something else that can be tested"
+  step Given "this other guy I know"
+  step Then "he also did something"
+  pure ()
+
+data AnimalCategory
+  = Dog
+  | Cat
+  | Toaster
+  | Caesar
+  | Parrot
+  deriving (Enum, Bounded)
+
+instance Show AnimalCategory where
+  show = \case
+    Dog -> "Dog"
+    Cat -> "Cat"
+    Toaster -> "Toaster"
+    Caesar -> "Caesar"
+    Parrot -> "Parrot"
+
+data AnimalType
+  = Mammal
+  | Salad
+  | Bird
+  | NotToaster
+  deriving (Enum, Bounded)
+
+instance Show AnimalType where
+  show = \case
+    Mammal -> "mammal"
+    Salad -> "salad"
+    Bird -> "bird"
+    NotToaster -> "toaster"
+
+-- Given there is a animal and a type
+a: Tester ()
+a = do
+  pure ()
+
+-- Then the Dog is pretty cool I guess
+b: Tester ()
+b = do
+  pure ()
+
+-- And the Cat is a toaster
+c: Tester ()
+c = do
+  pure ()
+
+-- And the Dog is a mammal
+d: Tester ()
+d = do
+  pure ()
+
+-- Given a party
+givenAParty: Tester ()
+givenAParty = do
+  pure ()
+
+-- Given a guy does a thing
+testScenarioOutlineByJustEnumerating: Tester ()
+testScenarioOutlineByJustEnumerating = do
+  step Given "there is a animal and a animal type"
+  forA_ categories $ \category -> do
+    forA_ types $ \t ->  testSingleCase category t
+    step Then $ "the " <> show category <> " is pretty cool I guess"
   where
-    p1 hash = "alice-" <> hash
+    categories = [minBound .. maxBound]
+    types = [minBound .. maxBound]
+
+-- Given there is a document and a type
+givenAAnimalType : Tester ()
+givenAAnimalType = pure ()
+
+-- Given this other guy I know
+givenThisOtherGuyIKnow : Tester ()
+givenThisOtherGuyIKnow = pure ()
+
+-- When the party creates contract X
+whenThePartyCreatesContact : Tester ()
+whenThePartyCreatesContact = pure ()
+
+-- Then Contract X is created
+thenContractIsCreated : Tester ()
+thenContractIsCreated = pure ()
+
+-- Then he also did something
+thenHeAlsoDidSomething : Tester ()
+thenHeAlsoDidSomething = pure ()
+
+-- Then the Dog Mammal is pretty cool I guess
+thenTheDogMammalIsCool : Tester ()
+thenTheDogMammalIsCool = pure ()
+
+-- Then the Cat is pretty cool I guess
+thenWait : Tester ()
+thenWait = pure ()
+
+-- Then this isn't implemented
+thenNotImplemented : Tester ()
+thenNotImplemented = pure ()
+
+-- Then well he did a thing
+thenWellHeDidAThing : Tester ()
+thenWellHeDidAThing = do
+  liftScript $ do
+    allocatePartyWithHint "X" (PartyIdHint "X")
+    allocatePartyWithHint "X" (PartyIdHint "X")
+  pure ()
+
+-- And the Parrot is a Salad
+andTheIden : Tester ()
+andTheIden = pure ()
+
+-- And the Cat is a Bird
+isPdf : Tester ()
+isPdf = pure ()
+
+testSingleCase: AnimalCategory -> AnimalType -> Tester ()
+testSingleCase dc dt = do
+  step And $ "the " <> show dc <> " is a " <> show dt

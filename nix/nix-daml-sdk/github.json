@@ -1,7 +1,8 @@
 {
   "owner": "obsidiansystems",
   "repo": "nix-daml-sdk",
+  "branch": "dg/fix-java-path",
   "private": false,
-  "rev": "bfe7e68ce33b7af61bfb4b263931f9d01eaf65d8",
-  "sha256": "0in3pq4f24ggmm4j6j0qb58z79m7wyikgpqmjz66pma0cqi07cbk"
+  "rev": "c6127fed78ad1bce1007bc098c191dd02b8dff04",
+  "sha256": "0k0s1pmjcilsn8hh51j0hmqfhcgyawjwdviq4ilzzvrs44ss5kjr"
 }

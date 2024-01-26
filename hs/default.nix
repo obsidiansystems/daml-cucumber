@@ -1,8 +1,8 @@
-{}:
+{ nix-daml-sdk ? import ../nix/nix-daml-sdk { sdkVersion = "2.6.5"; }
+}:
 let
   platform =  import ../nix/reflex-platform {};
   pkgs = platform.nixpkgs;
-  damlSdk = import ../nix/nix-daml-sdk {};
   src = builtins.filterSource (path: type: !(builtins.elem (baseNameOf path) [
       "release.nix"
       ".git"
@@ -18,14 +18,15 @@ let
       reflex-process = self.callCabal2nix "reflex-process" (pkgs.hackGet ./dep/reflex-process) {};
       which = haskellLib.doJailbreak super.which;
       reflex = self.callCabal2nix "reflex" (pkgs.hackGet ./dep/reflex) {};
+      neat-interpolation = haskellLib.doJailbreak super.neat-interpolation;
       daml-cucumber = haskellLib.overrideCabal
         (self.callCabal2nix "daml-cucumber" src {})
         (drv: {
-          librarySystemDepends = (drv.librarySystemDepends or []) ++ [ damlSdk.sdk ];
+          librarySystemDepends = (drv.librarySystemDepends or []) ++ [ nix-daml-sdk.sdk ];
         });
     };
   };
 in
-  { daml-cucumber = ghc.daml-cucumber;
-    inherit ghc;
+  { inherit (ghc) daml-cucumber;
+    inherit ghc nix-daml-sdk;
   }

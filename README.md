@@ -55,6 +55,14 @@ daml build
 daml sandbox
 ```
 
+Build the scripts:
+
+```bash
+nix-shell
+cd test
+daml build
+```
+
 Run the cucumber tests:
 
 ```bash

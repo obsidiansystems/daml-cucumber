@@ -21,16 +21,29 @@ library
     exposed-modules:  Daml.Cucumber
                       Daml.Cucumber.Parse
                       Daml.Cucumber.Types
+                      Daml.Cucumber.Daml.Parse
+                      Daml.Cucumber.Daml.Parser
+                      Daml.Cucumber.LSP
+                      Daml.Cucumber.Daml.Tokenizer
     build-depends:    base >= 4.14 && < 5
                     , abacate >= 0.0 && < 0.1
                     , aeson
+                    , directory
+                    , filepath
+                    , extra
                     , bytestring
                     , parsec
                     , process
+                    , containers
                     , reflex
                     , reflex-process
                     , text
                     , which
+                    , casing
+                    , mtl
+                    , neat-interpolation
+                    , tagsoup
+                    , unix
     hs-source-dirs:   src
     default-language: Haskell2010
     default-extensions:
@@ -39,6 +52,7 @@ library
       LambdaCase
       OverloadedStrings
       TemplateHaskell
+      ScopedTypeVariables
 
 executable daml-cucumber
     import:           warnings
@@ -49,5 +63,6 @@ executable daml-cucumber
                  , optparse-applicative
                  , temporary
                  , text
+    ghc-options: -O -threaded
     hs-source-dirs:   src-exe
     default-language: Haskell2010

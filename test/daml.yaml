@@ -1,4 +1,4 @@
-sdk-version: 2.6.4
+sdk-version: 2.6.5
 name: daml-cucumber
 version: 0.1.0.0
 source: daml
