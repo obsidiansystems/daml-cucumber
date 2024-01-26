@@ -25,6 +25,7 @@ let
       paths = with nix-daml-sdk; [
         sdk
         pkgs.coreutils
+        pkgs.bash
         (pkgs.haskell.lib.justStaticExecutables hsBuild.daml-cucumber)
       ];
       pathsToLink = [ "/bin" "/share" "/lib" ];
@@ -33,6 +34,9 @@ let
     config = {
       Env = [
         "PATH=/bin"
+      ];
+      Cmd = [
+        "/bin/sh"
       ];
     };
   };
