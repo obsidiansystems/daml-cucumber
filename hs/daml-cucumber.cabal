@@ -25,25 +25,25 @@ library
                       Daml.Cucumber.Daml.Parser
                       Daml.Cucumber.LSP
                       Daml.Cucumber.Daml.Tokenizer
-    build-depends:    base >= 4.14 && < 5
-                    , abacate >= 0.0 && < 0.1
+    build-depends:    abacate >= 0.0 && < 0.1
                     , aeson
-                    , directory
-                    , filepath
-                    , extra
+                    , base >= 4.14 && < 5
                     , bytestring
-                    , parsec
-                    , process
-                    , containers
-                    , reflex
-                    , reflex-process
-                    , text
-                    , which
+                    , directory
                     , casing
+                    , containers
+                    , extra
+                    , filepath
                     , mtl
                     , neat-interpolation
+                    , parsec
+                    , process
+                    , reflex
+                    , reflex-process
                     , tagsoup
+                    , text
                     , unix
+                    , which
     hs-source-dirs:   src
     default-language: Haskell2010
     default-extensions:
@@ -57,8 +57,8 @@ library
 executable daml-cucumber
     import:           warnings
     main-is:          Main.hs
-    build-depends: base
-                 , aeson
+    build-depends: aeson
+                 , base
                  , daml-cucumber
                  , optparse-applicative
                  , temporary
