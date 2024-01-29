@@ -24,6 +24,7 @@ import qualified Data.Map as Map
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
+import Text.Encoding.Z (zEncodeString)
 import Reflex
 import Reflex.Host.Headless
 import Reflex.Process
@@ -176,7 +177,7 @@ debug n = "debug \"" <> n <> "\""
 
 getScenarioFunctionName :: Scenario -> Text
 getScenarioFunctionName =
-  T.pack . toCamel . fromWords . T.unpack . _scenario_name
+  T.pack . zEncodeString . toCamel . fromWords . T.unpack . _scenario_name
 
 writeDamlScript :: FilePath -> DamlScript -> IO ()
 writeDamlScript path state = do
