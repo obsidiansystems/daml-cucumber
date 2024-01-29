@@ -186,7 +186,7 @@ writeDamlScript path state = do
 
   T.hPutStrLn handle $ "module " <> moduleName <> " where"
 
-  T.hPutStrLn handle "import Tester"
+  T.hPutStrLn handle "import Cucumber"
   T.hPutStrLn handle "import StateT"
   T.hPutStrLn handle "import Daml.Script"
 
@@ -199,7 +199,7 @@ writeDamlScript path state = do
     T.hPutStrLn handle "\n"
     T.hPutStrLn handle $ name <> ": " <> "Script ()"
     T.hPutStrLn handle $ name <> " = do"
-    T.hPutStrLn handle $ "  " <> "_ <- runTester $ do"
+    T.hPutStrLn handle $ "  " <> "_ <- runCucumber $ do"
     for_ body $ \action -> do
       T.hPutStrLn handle $ "    " <> action
     T.hPutStrLn handle $ "  pure ()"

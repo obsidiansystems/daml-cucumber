@@ -22,7 +22,7 @@ let
           mkdir $out
           cp dist.dar $out/
         '';
-      }
+      };
       container = mkContainer damlSdk hsBuild version;
       inherit version;
     };

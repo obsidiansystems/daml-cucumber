@@ -1,13 +1,11 @@
-module Tester where
+module Cucumber where
 
-import DA.Stack
 import DA.Action
+import DA.Action.State.Class
+import DA.Exception
 import DA.Set
 import Daml.Script
-import DA.Exception
-import DA.Either
 import StateT
-import DA.Action.State.Class
 
 data StepKey = StepKey
   { keyword: Keyword
@@ -23,12 +21,6 @@ data Message
 
 data Keyword = Given | When | Then | And | But
   deriving (Eq, Show, Enum, Bounded, Ord)
-
-template X
-  with
-    owner : Party
-  where
-    signatory owner
 
 data StepResult = StepResult
   with
@@ -60,22 +52,22 @@ data Context = Context
   , results: [Message]
   }
 
-newtype Tester a = Tester
-  { unTester: StateT Context Script a
+newtype Cucumber a = Cucumber
+  { unCucumber: StateT Context Script a
   }
  deriving (Functor, Applicative, Action, ActionState Context)
 
-instance LiftScript Tester where
-  liftScript action = Tester (liftScript action)
+instance LiftScript Cucumber where
+  liftScript action = Cucumber (liftScript action)
 
 startingContext: Context
 startingContext = Context None None mempty mempty mempty
 
-runTester: Tester a -> Script (a, Context)
-runTester testAction =
+runCucumber: Cucumber a -> Script (a, Context)
+runCucumber testAction =
   runState startingContext action
   where
-    Tester action = do
+    Cucumber action = do
       result <- testAction
       tryRecordStep
       tryRecordScenario
@@ -84,11 +76,11 @@ runTester testAction =
 gets: (Applicative m, ActionState s m) => (s -> a) -> m a
 gets f = f <$> get
 
-report: Message -> Tester ()
+report: Message -> Cucumber ()
 report msg =
   modify $ \c -> c{ results = c.results <> [msg] }
 
-tryRecordScenario: Tester ()
+tryRecordScenario: Cucumber ()
 tryRecordScenario = do
   -- Record the results of the current scenario
   records <- gets scenarioRecords
@@ -102,7 +94,7 @@ tryRecordScenario = do
                       })
     _ -> pure ()
 
-tryRecordStep: Tester ()
+tryRecordStep: Cucumber ()
 tryRecordStep = do
   -- Record the results of the current step
   records <- gets stepRecords
@@ -117,7 +109,7 @@ tryRecordStep = do
     _ -> pure ()
 
 -- TODO remove the conflict in this name with Prelude.scenario
-scenario': Text -> Tester ()
+scenario': Text -> Cucumber ()
 scenario' name = do
   tryRecordStep
   tryRecordScenario
@@ -125,7 +117,7 @@ scenario' name = do
   -- 'Push' on the current step
   modify (\c -> c { currentScenario = Some name })
 
-step: Keyword -> Text -> Tester ()
+step: Keyword -> Text -> Cucumber ()
 step keyword ident = do
   tryRecordStep
 
