@@ -10,6 +10,19 @@ let
       recurseForDerivations = true;
       damlSdk = import ./nix/nix-daml-sdk { sdkVersion = version; };
       hsBuild = import ./hs { nix-daml-sdk = damlSdk; };
+      damlLib = pkgs.stdenvNoCC.mkDerivation {
+        name = "daml-cucumber";
+        src = pkgs.lib.cleanSource ./daml;
+        buildInputs = [ damlSdk.jdk damlSdk.sdk ];
+        buildPhase = ''
+          mkdir dist
+          daml build -o dist.dar
+        '';
+        installPhase = ''
+          mkdir $out
+          cp dist.dar $out/
+        '';
+      }
       container = mkContainer damlSdk hsBuild version;
       inherit version;
     };
