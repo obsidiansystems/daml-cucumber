@@ -43,5 +43,8 @@ instance Action m => ActionState s (StateT s m) where
   put s = state $ \ _ -> ((), s)
   modify f = state $ \ s -> ((), f s)
 
+gets : (Applicative m, ActionState s m) => (s -> a) -> m a
+gets f = f <$> get
+
 runState: s -> StateT s m a -> m (a, s)
 runState s (StateT f) = f s

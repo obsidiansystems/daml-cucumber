@@ -1,4 +1,11 @@
-module Daml.Cucumber.Types where
+module Daml.Cucumber.Types
+  ( Feature(..)
+  , Step(..)
+  , Examples(..)
+  , Outline(..)
+  , Scenario(..)
+  , Keyword(..)
+  ) where
 
 import Data.Aeson
 import Data.Text (Text)

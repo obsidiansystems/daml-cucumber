@@ -1,4 +1,6 @@
-module Daml.Cucumber.Parse where
+module Daml.Cucumber.Parse
+  ( parseFeature
+  ) where
 
 import Daml.Cucumber.Types
 import qualified Language.Abacate as A
