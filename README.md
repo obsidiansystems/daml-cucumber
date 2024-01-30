@@ -86,20 +86,11 @@ nix-build
 
 From the project root, run `nix-shell` to get a shell with the `daml` command, `daml sdk`, `ghci`, `cabal`, and necessary haskell packages installed.
 
-Run the canton sandbox:
+Build the daml-cucumber daml library:
 
 ```bash
 nix-shell
-cd test
-daml build
-daml sandbox
-```
-
-Build the scripts:
-
-```bash
-nix-shell
-cd test
+cd daml
 daml build
 ```
 
@@ -109,5 +100,5 @@ Run the cucumber tests:
 nix-shell
 cd hs
 cabal repl exe:daml-cucumber
-:main --dar "../test/.daml/dist/daml-cucumber-0.1.0.0.dar" --host "localhost" --port 6865 --script "Test:main" --feat "../test/features.feature"
+:main --directory ../test --source ../test/daml --feature-file ../test/features.feature
 ```
