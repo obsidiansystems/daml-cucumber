@@ -9,6 +9,7 @@ import Daml.Cucumber.Daml.Parse
 import Daml.Cucumber.LSP
 import Daml.Cucumber.Parse
 import Daml.Cucumber.Types
+import Data.Char
 import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -219,7 +220,7 @@ debug n = "debug \"" <> n <> "\""
 
 getScenarioFunctionName :: Scenario -> Text
 getScenarioFunctionName =
-  T.pack . toCamel . fromWords . T.unpack . _scenario_name
+  T.pack . toCamel . fromWords . unwords . fmap (filter isAlphaNum) . words . T.unpack . _scenario_name
 
 writeDamlScript :: FilePath -> DamlScript -> IO ()
 writeDamlScript path state = do

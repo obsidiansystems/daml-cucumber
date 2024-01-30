@@ -1,4 +1,7 @@
 let
+  gitInfo = builtins.fetchGit { url = "file://${./.}"; };
+  isDirty = gitInfo.shortRev == "0000000";
+  rev = if isDirty then "dirty" else gitInfo.shortRev;
   platform = import ./nix/reflex-platform {};
   pkgs = platform.nixpkgs;
   versions = builtins.map (x: let
@@ -25,14 +28,14 @@ let
           cp dist.dar $out/
         '';
       };
-      container = mkContainer damlSdk hsBuild version;
+      container = mkContainer damlSdk hsBuild (version + "-${rev}");
       inherit version;
     };
   })
     (builtins.attrNames (builtins.readDir ((pkgs.hackGet ./nix/nix-daml-sdk) + "/versions")));
 
   mkContainer = nix-daml-sdk: hsBuild: version: pkgs.dockerTools.buildImage {
-    name = "daml-cucumber";
+    name = "obsidiansys/daml-cucumber";
     tag = version;
 
     copyToRoot = pkgs.buildEnv {
@@ -65,10 +68,11 @@ let
       docker load -i ${x.container}
     '');
     pushContainers = forVersions (x: ''
-      docker push daml-cucumber:${x.version}
+      docker push obsidiansys/daml-cucumber:${x.version}-${rev}
     '');
   in pkgs.writeShellScriptBin "docker-push-generated" (builtins.concatStringsSep "\n" (loadContainers ++ pushContainers));
 in {
+  inherit isDirty rev;
   container = outputs.daml-265.container;
   recurseForDerivations = true;
   pushScript = genScriptForPush;
