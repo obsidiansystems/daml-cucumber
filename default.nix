@@ -35,7 +35,7 @@ let
     (builtins.attrNames (builtins.readDir ((pkgs.hackGet ./nix/nix-daml-sdk) + "/versions")));
 
   mkContainer = nix-daml-sdk: hsBuild: version: pkgs.dockerTools.buildImage {
-    name = "daml-cucumber";
+    name = "obsidiansys/daml-cucumber";
     tag = version;
 
     copyToRoot = pkgs.buildEnv {
