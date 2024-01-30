@@ -74,8 +74,8 @@ runTestSuite folder mFeatureFile damlFolder allowMissing = do
       writeDamlScript testfile result
       result' <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
       case result' of
-        Left error -> do
-          T.putStrLn $ "lsp session failed: " <> error
+        Left err -> do
+          T.putStrLn $ "lsp session failed: " <> err
           exitFailure
 
         Right testResults -> do

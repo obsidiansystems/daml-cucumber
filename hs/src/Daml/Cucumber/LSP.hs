@@ -243,25 +243,17 @@ damlIde cwd rpcEvent = do
 
     stdout = _process_stdout process
 
-    yieldIfNotEmpty f = case f of
-      [] -> Nothing
-      _ -> Just f
-
-    yieldIfEmpty f = case f of
-      [] -> Just ()
-      _ -> Nothing
-
   lastError <- holdDyn "damlc exited unexpectedly" errorOutput
   rec
     buffer <- foldDyn ($) "" $ flip (<>) <$> stdout
 
-    let
-      parseResult = parseBuffer <$> updated buffer
-      parsedResponses = fst <$> parseResult
+    let dResponses = fst . parseBuffer <$> buffer
 
-      dResponses = fst . parseBuffer <$> buffer
-
-  pure $ DamlIde (Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses) dResponses (current lastError <@ _process_exit process)
+  pure $ DamlIde
+    { damlIde_testResponses = Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses
+    , damlIde_allResponses = dResponses
+    , damlIde_exit = current lastError <@ _process_exit process
+    }
 
 parseBuffer :: BS.ByteString -> ([Response], BS.ByteString)
 parseBuffer bs = (catMaybes . fmap decodeStrict $ allOfEm, rest)
