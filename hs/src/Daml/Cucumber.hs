@@ -98,8 +98,8 @@ generateTest f = do
               , test_features = feats
               }
 
-runTestSuite :: FilePath -> Maybe FilePath -> FilePath -> Bool -> IO ()
-runTestSuite folder mFeatureFile damlFolder allowMissing = do
+runTestSuite :: FilePath -> Maybe FilePath -> FilePath -> Bool -> Bool -> IO ()
+runTestSuite folder mFeatureFile damlFolder allowMissing generateOnly = do
   f@(Files featureFiles damlFiles) <- getProjectFiles folder mFeatureFile
   putStrLn "Found feature files"
   for_ featureFiles $ putStrLn . ("  " <>)
@@ -113,12 +113,12 @@ runTestSuite folder mFeatureFile damlFolder allowMissing = do
       exitFailure
     Right (Test result definedSteps missingSteps features) -> do
       let
-        testfile = (damlFolder </> "Generated.daml")
-        shouldRunTests = allowMissing || Set.null missingSteps
+        testFile = (damlFolder </> "Generated.daml")
+        shouldRunTests = (allowMissing || Set.null missingSteps) && not generateOnly
       case shouldRunTests of
         True -> do
-          writeDamlScript testfile result
-          result' <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
+          writeDamlScript testFile result
+          result' <- runTestLspSession folder testFile $ fmap damlFuncName $ damlFunctions result
           case result' of
             Left err -> do
               T.putStrLn $ "lsp session failed: " <> err
@@ -130,9 +130,14 @@ runTestSuite folder mFeatureFile damlFolder allowMissing = do
                 for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
               when (not success) $ exitFailure
         False -> do
-          putStrLn "Missing steps:"
-          for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
-          exitFailure
+          if generateOnly
+            then do
+              writeDamlScript testFile result
+              putStrLn $ "Test script written to " <> testFile
+            else do
+              putStrLn "Missing steps:"
+              for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+              exitFailure
 
 evaluateResults :: Set Step -> Map Text ([Text], Text) -> [Feature] -> IO Bool
 evaluateResults definedSteps testResults features = do

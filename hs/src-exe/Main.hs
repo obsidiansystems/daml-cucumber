@@ -8,6 +8,7 @@ data Opts = Opts
   , _opts_featureFile :: Maybe FilePath
   , _opts_damlSourceDir :: FilePath
   , _opts_allowMissing :: Bool
+  , _opts_generateOnly :: Bool
   }
 
 opts :: Parser Opts
@@ -27,6 +28,9 @@ opts = Opts
   <*> flag False True
       ( long "allow-missing"
       <> help "Don't fail if steps are missing" )
+  <*> flag False True
+      ( long "generate-only"
+      <> help "Generate daml test script but don't run the tests" )
 
 main :: IO ()
 main = do
@@ -40,3 +44,4 @@ main = do
     (_opts_featureFile options)
     (_opts_damlSourceDir options)
     (_opts_allowMissing options)
+    (_opts_generateOnly options)
