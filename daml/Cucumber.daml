@@ -1,15 +1,30 @@
-module Cucumber where
+{-|
+Module      : Cucumber
+Description : Cucumber testing for daml
+Copyright   : (c) Obsidian Systems LLC, 2024
+License     : BSD-3-Clause
+Maintainer  : maintainer@obsidian.systems
+
+Support library for daml-cucumber. Use this library to implement
+cucumber/gherkin steps in daml, and use the daml-cucumber tool to run them.
+-}
+module Cucumber
+  ( module Cucumber
+  , module LiftScript
+  , module StateT
+  ) where
 
 import DA.Action
 import DA.Action.State.Class
 import DA.Exception
 import DA.Set
 import Daml.Script
+import LiftScript
 import StateT
 
 data StepKey = StepKey
-  { keyword: Keyword
-  , identifier: Text
+  { keyword : Keyword
+  , identifier : Text
   }
   deriving (Eq, Show, Ord)
 
@@ -24,9 +39,9 @@ data Keyword = Given | When | Then | And | But
 
 data StepResult = StepResult
   with
-    stepKeyword: Keyword
-    ident: Text
-    success: Bool
+    stepKeyword : Keyword
+    ident : Text
+    success : Bool
 
 tryCatch
   : Script a
@@ -46,14 +61,14 @@ tryCatch f = do
 
 data Context = Context
   { currentScenario : Optional Text
-  , currentStep: Optional StepKey
-  , scenarioRecords: Set Text
-  , stepRecords: Set StepKey
-  , results: [Message]
+  , currentStep : Optional StepKey
+  , scenarioRecords : Set Text
+  , stepRecords : Set StepKey
+  , results : [Message]
   }
 
 newtype Cucumber a = Cucumber
-  { unCucumber: StateT Context Script a
+  { unCucumber : StateT Context Script a
   }
  deriving (Functor, Applicative, Action, ActionState Context)
 
@@ -73,14 +88,14 @@ runCucumber testAction =
       tryRecordScenario
       pure result
 
-gets: (Applicative m, ActionState s m) => (s -> a) -> m a
+gets : (Applicative m, ActionState s m) => (s -> a) -> m a
 gets f = f <$> get
 
-report: Message -> Cucumber ()
+report : Message -> Cucumber ()
 report msg =
   modify $ \c -> c{ results = c.results <> [msg] }
 
-tryRecordScenario: Cucumber ()
+tryRecordScenario : Cucumber ()
 tryRecordScenario = do
   -- Record the results of the current scenario
   records <- gets scenarioRecords
@@ -94,7 +109,7 @@ tryRecordScenario = do
                       })
     _ -> pure ()
 
-tryRecordStep: Cucumber ()
+tryRecordStep : Cucumber ()
 tryRecordStep = do
   -- Record the results of the current step
   records <- gets stepRecords
@@ -109,7 +124,7 @@ tryRecordStep = do
     _ -> pure ()
 
 -- TODO remove the conflict in this name with Prelude.scenario
-scenario': Text -> Cucumber ()
+scenario' : Text -> Cucumber ()
 scenario' name = do
   tryRecordStep
   tryRecordScenario
@@ -117,9 +132,8 @@ scenario' name = do
   -- 'Push' on the current step
   modify (\c -> c { currentScenario = Some name })
 
-step: Keyword -> Text -> Cucumber ()
+step : Keyword -> Text -> Cucumber ()
 step keyword ident = do
   tryRecordStep
-
   -- 'Push' on the current step
   modify (\c -> c { currentStep = Some (StepKey keyword ident) })
