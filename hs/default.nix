@@ -14,7 +14,7 @@ let
   haskellLib = platform.nixpkgs.haskell.lib;
   ghc = platform.ghc.override {
     overrides = self: super: {
-      abacate = haskellLib.doJailbreak (haskellLib.markUnbroken super.abacate);
+      abacate = self.callCabal2nix "abacate" (pkgs.hackGet ./dep/abacate) {};
       reflex-process = self.callCabal2nix "reflex-process" (pkgs.hackGet ./dep/reflex-process) {};
       which = haskellLib.doJailbreak super.which;
       reflex = self.callCabal2nix "reflex" (pkgs.hackGet ./dep/reflex) {};
