@@ -137,40 +137,6 @@ evaluateResults definedSteps testResults features = do
 
   pure success
 
-  -- case Set.null missingSteps of
-  --   False -> do
-  --     putStrLn "Cannot run features, missing steps:"
-  --     for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
-  --
-  --   True -> do
-  --     let
-  --       (_, result) = runState (generateDamlSource stepMapping features) (DamlScript mempty mempty)
-  --       testfile = (damlFolder </> "Generated.daml")
-  --     writeDamlScript testfile result
-  --     testResults <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
-  --
-  --     for_ features $ \feature -> do
-  --       for_ (_feature_scenarios feature) $ \s@(Scenario name steps) -> do
-  --         T.putStrLn $ "Scenario: " <> name
-  --         let
-  --            fname = getScenarioFunctionName s
-  --
-  --            errors = maybe "" snd $ Map.lookup fname testResults
-  --            resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
-  --            getResult s' = Map.lookup s' resultMap
-  --
-  --         for_ steps $ \stp -> do
-  --           let
-  --             pretty = prettyPrintStep stp
-  --           case getResult $ T.pack pretty of
-  --             Just True -> putStrLn $ ("  " <> pretty <> " => OK")
-  --             Just False -> do
-  --               putStrLn $ "  " <> pretty <> " => FAILED"
-  --               T.putStrLn $ "    " <> errors
-  --             _ -> putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
-  --     pure ()
-  -- pure ()
-
 collateStepResults :: [Text] -> [(Text, Bool)]
 collateStepResults (name:"pass": rest) = (name, True) : collateStepResults rest
 collateStepResults (name:rest) = (name, False) : collateStepResults rest
