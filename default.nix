@@ -28,7 +28,7 @@ let
           cp dist.dar $out/
         '';
       };
-      container = mkContainer damlSdk hsBuild version;
+      container = mkContainer damlSdk hsBuild (version + "-${rev}");
       inherit version;
     };
   })
