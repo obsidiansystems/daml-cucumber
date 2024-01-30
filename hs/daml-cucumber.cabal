@@ -57,8 +57,11 @@ library
   default-extensions:
     DeriveGeneric
     FlexibleContexts
+    GeneralizedNewtypeDeriving
     LambdaCase
     OverloadedStrings
+    QuasiQuotes
+    RecursiveDo
     ScopedTypeVariables
     TemplateHaskell
 

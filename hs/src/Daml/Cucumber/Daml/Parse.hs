@@ -1,14 +1,12 @@
--- |
-
 module Daml.Cucumber.Daml.Parse where
 
+import Control.Monad
+import Daml.Cucumber.Daml.Parser
+import Daml.Cucumber.Daml.Tokenizer
+import Daml.Cucumber.Types hiding (identifier)
+import Data.Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
-import Control.Monad
-import Data.Foldable
-import Daml.Cucumber.Daml.Tokenizer
-import Daml.Cucumber.Daml.Parser
-import Daml.Cucumber.Types hiding (identifier)
 
 data DamlFile = DamlFile
   { damlFilePath :: FilePath
@@ -57,14 +55,12 @@ parseType name = do
   pure $ Type n rest
 
 idents :: Text -> Parser [Text]
-idents thing = do
-  ident <- peek
-  case ident of
-    Identifier name | name /= thing -> do
-      eat
-      rest <- idents thing
-      pure $ name : rest
-    _ -> pure []
+idents thing = peek >>= \case
+  Identifier name | name /= thing -> do
+    eat
+    rest <- idents thing
+    pure $ name : rest
+  _ -> pure []
 
 parseTypeSig :: Text -> Parser TypeSig
 parseTypeSig name = do
@@ -101,10 +97,10 @@ parseStepBinding :: Parser Step
 parseStepBinding = do
   comment <- parseComment
   case comment of
-    (Identifier ident : rest) -> do
+    (Identifier ident' : rest) -> do
       let
         parsedKeyword =
-          case ident of
+          case ident' of
             "Given" -> Just Given
             "When" -> Just When
             "Then" -> Just Then
@@ -121,10 +117,10 @@ parseStepBinding = do
 parseDefinition :: Parser Definition
 parseDefinition = do
   mStepBind <- try parseStepBinding
-  ident <- identifier
+  ident' <- identifier
   _ <- accept (==Colon)
-  t <- parseTypeSig ident
-  pure $ Definition ident mStepBind t
+  t <- parseTypeSig ident'
+  pure $ Definition ident' mStepBind t
 
 parseFileDefinitions :: FilePath -> IO (Maybe [Definition])
 parseFileDefinitions path = do

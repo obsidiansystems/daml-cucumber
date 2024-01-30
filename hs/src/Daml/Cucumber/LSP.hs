@@ -1,40 +1,29 @@
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Daml.Cucumber.LSP where
 
-import Debug.Trace
-import Data.Maybe
-import System.Which
-import Data.Map (Map)
-import Control.Monad
 import Control.Applicative
-import qualified Data.Map as Map
-import Control.Monad.IO.Class
+import Control.Monad
 import Control.Monad.Fix
-import Reflex.Host.Headless
-import Reflex.Process
-import Reflex.Process.Lines
+import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Aeson.Types
+import qualified Data.ByteString.Char8 as BS
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified System.Process as Proc
+import NeatInterpolation (text)
+import Reflex hiding (Request, Response)
+import Reflex.Host.Headless
+import Reflex.Process
 import System.Posix.Process
 import System.Posix.Types
-import Reflex hiding (Request, Response)
-import Reflex.Process
-import System.IO
-import qualified Data.Text.IO as T
-import NeatInterpolation(text)
-import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified System.Process as Proc
+import System.Which
 import Text.HTML.TagSoup
-import qualified Data.Set as Set
-import Data.Set (Set)
 
 data RanTest = RanTest
   { ranTestTraces :: [Text]
@@ -133,7 +122,7 @@ runTestLspSession cwd filepath testNames = do
     pb <- getPostBuild
 
     rec
-      (response, currentResults, currentResponses) <- damlIde cwd sendReq
+      (_response, currentResults, currentResponses) <- damlIde cwd sendReq
 
       let
         getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
@@ -258,7 +247,7 @@ damlIde cwd rpcEvent = do
       dResponses = fst . parseBuffer <$> buffer
 
       result = fmapMaybe yieldIfNotEmpty parsedResponses
-      hung = fmapMaybe yieldIfEmpty parsedResponses
+      _hung = fmapMaybe yieldIfEmpty parsedResponses
 
   pure (result, Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses, dResponses)
 
@@ -281,13 +270,13 @@ getDelimitedBlock :: BS.ByteString -> (BS.ByteString, BS.ByteString)
 getDelimitedBlock input = case bsSafeHead fromFirstCurly of
   Just '{' ->
     let
-      count = (findClosingDelimiter 1 0 $ BS.drop 1 fromFirstCurly) + 1
-      result = BS.take count fromFirstCurly
+      count' = (findClosingDelimiter 1 0 $ BS.drop 1 fromFirstCurly) + 1
+      result = BS.take count' fromFirstCurly
 
       hasEndCurly = maybe False (=='}') $ bsSafeLast result
     in
     case hasEndCurly of
-       True -> (result, BS.drop (count + BS.length prefix) input)
+       True -> (result, BS.drop (count' + BS.length prefix) input)
        _ -> ("", input)
 
   _ -> ("", fromFirstCurly)
@@ -298,13 +287,13 @@ getDelimitedBlock input = case bsSafeHead fromFirstCurly of
     findClosingDelimiter :: Int -> Int -> BS.ByteString -> Int
     -- findClosingDelimiter _ _ "" = 0
     findClosingDelimiter 0 total _ = total
-    findClosingDelimiter n total input = case bsSafeHead input of
+    findClosingDelimiter n total input' = case bsSafeHead input' of
       Just '{' ->
-        findClosingDelimiter (n + 1) (total + 1) $ BS.drop 1 input
+        findClosingDelimiter (n + 1) (total + 1) $ BS.drop 1 input'
       Just '}' ->
-        findClosingDelimiter (n - 1) (total + 1) $ BS.drop 1 input
+        findClosingDelimiter (n - 1) (total + 1) $ BS.drop 1 input'
       Nothing -> total
-      _ -> findClosingDelimiter n (total + 1) $ BS.drop 1 input
+      _ -> findClosingDelimiter n (total + 1) $ BS.drop 1 input'
 
 isACurly :: Char -> Bool
 isACurly = (\x -> x == '{' || x == '}')
@@ -318,20 +307,6 @@ bsSafeLast :: BS.ByteString -> Maybe Char
 bsSafeLast bs
   | BS.null bs = Nothing
   | otherwise = Just $ BS.last bs
-
--- test :: FilePath -> IO ()
--- test fp = do
---   fileData <- BS.readFile fp
---   T.putStrLn $ tShow $ parseResponses fileData
-  -- BS.writeFile (fp <> ".result") $ BS.intercalate "\n\n\n\n\n" $ BS.split '\n' $ fileData
-  -- T.putStrLn $
-
-
--- together :: IO ()
--- together = do
---   test "../hangreq.txt"
---   test "../nothangreq.txt"
-  -- T.putStrLn $ tShow $ parseResponses fileData
 
 mkDidOpenUri :: Text -> RPC Text
 mkDidOpenUri uri =

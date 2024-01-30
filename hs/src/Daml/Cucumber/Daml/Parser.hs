@@ -1,11 +1,8 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 module Daml.Cucumber.Daml.Parser where
 
+import Control.Monad.State
 import Data.Text (Text)
 import qualified Data.Text.IO as T
-import Control.Monad.State.Class
-import Control.Monad.State
 
 import Daml.Cucumber.Daml.Tokenizer
 

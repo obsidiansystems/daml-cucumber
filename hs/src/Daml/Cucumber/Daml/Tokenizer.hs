@@ -1,5 +1,3 @@
--- |
-
 module Daml.Cucumber.Daml.Tokenizer where
 
 import Data.Text (Text)
