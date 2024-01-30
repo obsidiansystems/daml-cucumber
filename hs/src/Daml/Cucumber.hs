@@ -1,4 +1,6 @@
-module Daml.Cucumber where
+module Daml.Cucumber
+  ( runTestSuite
+  ) where
 
 import Control.Monad.Extra
 import Control.Monad.State (State, modify, runState)
@@ -6,8 +8,6 @@ import Daml.Cucumber.Daml.Parse
 import Daml.Cucumber.LSP
 import Daml.Cucumber.Parse
 import Daml.Cucumber.Types
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString.Lazy as LBS
 import Data.Foldable
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -22,15 +22,6 @@ import System.Directory
 import System.FilePath hiding (hasExtension)
 import System.IO
 import Text.Casing
-
-data Opts = Opts
-  { _opts_directory :: FilePath
-  , _opts_featureFile :: Maybe FilePath
-  , _opts_damlSourceDir :: FilePath
-  }
-
-writeFeatureJson :: FilePath -> Feature -> IO ()
-writeFeatureJson path f = LBS.writeFile path (Aeson.encode f)
 
 -- A file like .daml counts as having the extension .daml even though that isn't correct!
 -- thus this function:
@@ -51,8 +42,8 @@ findFilesRecursive pred' dir = do
   others <- mapM (findFilesRecursive pred') directories
   pure $ files <> mconcat others
 
-runTestSuite :: Opts -> IO ()
-runTestSuite (Opts folder mFeatureFile damlFolder) = do
+runTestSuite :: FilePath -> Maybe FilePath -> FilePath -> IO ()
+runTestSuite folder mFeatureFile damlFolder = do
   allFiles <- findFilesRecursive (/= ".daml") folder
   let
     extraPred = case mFeatureFile of

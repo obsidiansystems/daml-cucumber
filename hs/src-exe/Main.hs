@@ -1,15 +1,13 @@
 module Main where
 
-import Control.Concurrent
-import Control.Monad
 import Daml.Cucumber
-import Daml.Cucumber.Types
-import Daml.Cucumber.LSP
-import qualified Data.Text as T
 import Options.Applicative
-import System.Exit
-import System.IO
-import System.IO.Temp
+
+data Opts = Opts
+  { _opts_directory :: FilePath
+  , _opts_featureFile :: Maybe FilePath
+  , _opts_damlSourceDir :: FilePath
+  }
 
 opts :: Parser Opts
 opts = Opts
@@ -26,10 +24,6 @@ opts = Opts
       <> metavar "FILEPATH"
       <> help "Directory the daml.yaml points to your source" )
 
-  where
-    intOption :: Mod OptionFields Int -> Parser Int
-    intOption = option auto
-
 main :: IO ()
 main = do
   options <- execParser $ info (opts <**> helper) $ mconcat
@@ -37,4 +31,7 @@ main = do
     , progDesc "Run cucumber tests in daml script"
     , header "daml-cucumber cli tool"
     ]
-  runTestSuite options
+  runTestSuite
+    (_opts_directory options)
+    (_opts_featureFile options)
+    (_opts_damlSourceDir options)
