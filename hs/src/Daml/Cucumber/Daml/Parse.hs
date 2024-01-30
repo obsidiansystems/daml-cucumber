@@ -1,10 +1,13 @@
-module Daml.Cucumber.Daml.Parse where
+module Daml.Cucumber.Daml.Parse
+  ( DamlFile(..)
+  , Definition(..)
+  , parseDamlFile
+  ) where
 
 import Control.Monad
 import Daml.Cucumber.Daml.Parser
 import Daml.Cucumber.Daml.Tokenizer
-import Daml.Cucumber.Types hiding (identifier)
-import Data.Foldable
+import Daml.Cucumber.Types
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -33,18 +36,6 @@ data TypeSig
   = Reg Type
   | Func FunctionType
   deriving (Eq, Show)
-
-parser :: Parser [Definition]
-parser = do
-  mDef <- try parseDefinition
-  case mDef of
-    Just def -> (def:) <$> parser
-    Nothing -> do
-      eat
-      ended <- isEof
-      case ended of
-        True -> pure []
-        False -> parser
 
 parseType :: Text -> Parser Type
 parseType name = do
@@ -129,9 +120,3 @@ parseFileDefinitions path = do
 parseDamlFile :: FilePath -> IO (Maybe DamlFile)
 parseDamlFile path =
   fmap (DamlFile path) <$> parseFileDefinitions path
-
-testParseAFile :: FilePath -> IO ()
-testParseAFile path = do
-  results <- parseFile path $ parseAll parseDefinition
-  for_ results (putStrLn . show)
-  pure ()

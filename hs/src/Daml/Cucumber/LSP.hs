@@ -1,4 +1,6 @@
-module Daml.Cucumber.LSP where
+module Daml.Cucumber.LSP
+  ( runTestLspSession
+  ) where
 
 import Control.Applicative
 import Control.Monad
@@ -46,8 +48,8 @@ getTracesAndErrors :: TestResult -> ([Text], Text)
 getTracesAndErrors (TestResultRan (RanTest traces errors)) = (traces, errors)
 getTracesAndErrors _ = ([], "")
 
-exampleTrace :: Text
-exampleTrace = "Transactions: Active contracts: Return value: {}Trace: \\\"Given a party\\\"  \\\"When the party creates contract X\\\"  \\\"Then Contract X is created\\\""
+_exampleTrace :: Text
+_exampleTrace = "Transactions: Active contracts: Return value: {}Trace: \\\"Given a party\\\"  \\\"When the party creates contract X\\\"  \\\"Then Contract X is created\\\""
 
 parseTraces :: Text -> [Text]
 parseTraces input
@@ -225,6 +227,8 @@ damlIde cwd rpcEvent = do
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
 
   process <- createProcess damlProc (ProcessConfig sendPipe never)
+  performEvent_ $ ffor (_process_stdout process) $ liftIO . print
+  performEvent_ $ ffor (_process_stderr process) $ liftIO . print
 
   let
     stdout = _process_stdout process
