@@ -1,7 +1,9 @@
 module Daml.Cucumber where
 
+import System.Exit
 import Control.Monad.Extra
-import Control.Monad.State (State, modify, runState)
+import Control.Monad.IO.Class
+import Control.Monad.State (State, modify, runState, runStateT)
 import Daml.Cucumber.Daml.Parse
 import Daml.Cucumber.LSP
 import Daml.Cucumber.Parse
@@ -27,6 +29,7 @@ data Opts = Opts
   { _opts_directory :: FilePath
   , _opts_featureFile :: Maybe FilePath
   , _opts_damlSourceDir :: FilePath
+  , _opts_allowMissing :: Bool
   }
 
 writeFeatureJson :: FilePath -> Feature -> IO ()
@@ -52,7 +55,7 @@ findFilesRecursive pred' dir = do
   pure $ files <> mconcat others
 
 runTestSuite :: Opts -> IO ()
-runTestSuite (Opts folder mFeatureFile damlFolder) = do
+runTestSuite (Opts folder mFeatureFile damlFolder allowMissing) = do
   allFiles <- findFilesRecursive (/= ".daml") folder
   let
     extraPred = case mFeatureFile of
@@ -79,39 +82,94 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
     missingSteps = Set.difference requiredSteps definedSteps
     stepMapping = mconcat $ fmap makeStepMapping files
 
-  case Set.null missingSteps of
-    False -> do
-      putStrLn "Cannot run features, missing steps:"
-      for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+    (_, result) = runState (generateDamlSource definedSteps stepMapping features) (DamlScript mempty mempty)
+    testfile = (damlFolder </> "Generated.daml")
 
+    shouldRunTests = allowMissing || Set.null missingSteps
+
+  case shouldRunTests of
     True -> do
-      let
-        (_, result) = runState (generateDamlSource stepMapping features) (DamlScript mempty mempty)
-        testfile = (damlFolder </> "Generated.daml")
       writeDamlScript testfile result
-      testResults <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
+      result <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
+      case result of
+        Left error -> do
+          T.putStrLn $ "lsp session failed: " <> error
+          exitFailure
 
-      for_ features $ \feature -> do
-        for_ (_feature_scenarios feature) $ \s@(Scenario name steps) -> do
-          T.putStrLn $ "Scenario: " <> name
+        Right testResults -> do
+          success <- evaluateResults definedSteps testResults features
+          when (not $ Set.null missingSteps) $ do
+            putStrLn "Missing steps:"
+            for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+          when (not success) $ exitFailure
+
+    False -> do
+      putStrLn "Missing steps:"
+      for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+      exitFailure
+
+evaluateResults :: Set Step -> Map Text ([Text], Text) -> [Feature] -> IO Bool
+evaluateResults definedSteps testResults features = do
+  (_, success) <- flip runStateT True $ do
+    for_ features $ \feature -> do
+      for_ (filter (isScenarioRunnable definedSteps) $ _feature_scenarios feature) $ \s@(Scenario name steps) -> do
+        liftIO $ T.putStrLn $ "Scenario: " <> name
+        let
+           fname = getScenarioFunctionName s
+
+           errors = maybe "" snd $ Map.lookup fname testResults
+           resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
+           getResult s' = Map.lookup s' resultMap
+
+        for_ steps $ \stp -> do
           let
-             fname = getScenarioFunctionName s
-
-             errors = maybe "" snd $ Map.lookup fname testResults
-             resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
-             getResult s' = Map.lookup s' resultMap
-
-          for_ steps $ \stp -> do
-            let
-              pretty = prettyPrintStep stp
-            case getResult $ T.pack pretty of
-              Just True -> putStrLn $ ("  " <> pretty <> " => OK")
-              Just False -> do
+            pretty = prettyPrintStep stp
+          case getResult $ T.pack pretty of
+            Just True -> liftIO $ putStrLn $ ("  " <> pretty <> " => OK")
+            Just False ->  do
+              modify (const False)
+              liftIO $ do
                 putStrLn $ "  " <> pretty <> " => FAILED"
                 T.putStrLn $ "    " <> errors
-              _ -> putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
-      pure ()
-  pure ()
+            _ -> do
+              modify (const False)
+              liftIO $ putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
+
+  pure success
+
+  -- case Set.null missingSteps of
+  --   False -> do
+  --     putStrLn "Cannot run features, missing steps:"
+  --     for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+  --
+  --   True -> do
+  --     let
+  --       (_, result) = runState (generateDamlSource stepMapping features) (DamlScript mempty mempty)
+  --       testfile = (damlFolder </> "Generated.daml")
+  --     writeDamlScript testfile result
+  --     testResults <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
+  --
+  --     for_ features $ \feature -> do
+  --       for_ (_feature_scenarios feature) $ \s@(Scenario name steps) -> do
+  --         T.putStrLn $ "Scenario: " <> name
+  --         let
+  --            fname = getScenarioFunctionName s
+  --
+  --            errors = maybe "" snd $ Map.lookup fname testResults
+  --            resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
+  --            getResult s' = Map.lookup s' resultMap
+  --
+  --         for_ steps $ \stp -> do
+  --           let
+  --             pretty = prettyPrintStep stp
+  --           case getResult $ T.pack pretty of
+  --             Just True -> putStrLn $ ("  " <> pretty <> " => OK")
+  --             Just False -> do
+  --               putStrLn $ "  " <> pretty <> " => FAILED"
+  --               T.putStrLn $ "    " <> errors
+  --             _ -> putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
+  --     pure ()
+  -- pure ()
 
 collateStepResults :: [Text] -> [(Text, Bool)]
 collateStepResults (name:"pass": rest) = (name, True) : collateStepResults rest
@@ -145,10 +203,10 @@ addFunction :: DamlFunc -> DamlScript -> DamlScript
 addFunction func state =
   state { damlFunctions = func : (damlFunctions state) }
 
-generateDamlSource :: Map Step StepFunc -> [Feature] -> State DamlScript ()
-generateDamlSource stepMapping features = do
+generateDamlSource :: Set Step -> Map Step StepFunc -> [Feature] -> State DamlScript ()
+generateDamlSource definedSteps stepMapping features = do
   for_ features $ \feature -> do
-    for_ (_feature_scenarios feature) $ \scenario -> do
+    for_ (filter (isScenarioRunnable definedSteps) $ _feature_scenarios feature) $ \scenario -> do
       fnames <- fmap mconcat $ for (_scenario_steps scenario) $ \step -> do
         let
           Just (StepFunc file fname) = Map.lookup step stepMapping
@@ -193,6 +251,9 @@ writeDamlScript path state = do
       T.hPutStrLn handle $ "    " <> action
     T.hPutStrLn handle $ "  pure ()"
   hClose handle
+
+isScenarioRunnable :: Set Step -> Scenario -> Bool
+isScenarioRunnable definedSteps scenario = all (flip Set.member definedSteps) (_scenario_steps scenario)
 
 makeStepMapping :: DamlFile -> Map Step StepFunc
 makeStepMapping file =
