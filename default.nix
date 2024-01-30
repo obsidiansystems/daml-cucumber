@@ -1,7 +1,7 @@
-{
-  rev ? "invalid"
-}:
 let
+  gitInfo = builtins.fetchGit { url = "file://${./.}"; };
+  isDirty = gitInfo.shortRev == "0000000";
+  rev = if isDirty then "dirty" else gitInfo.shortRev;
   platform = import ./nix/reflex-platform {};
   pkgs = platform.nixpkgs;
   versions = builtins.map (x: let
@@ -72,6 +72,7 @@ let
     '');
   in pkgs.writeShellScriptBin "docker-push-generated" (builtins.concatStringsSep "\n" (loadContainers ++ pushContainers));
 in {
+  inherit isDirty rev;
   container = outputs.daml-265.container;
   recurseForDerivations = true;
   pushScript = genScriptForPush;
