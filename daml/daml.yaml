@@ -1,11 +1,9 @@
 sdk-version: 2.6.5
-name: daml-cucumber-test
+name: daml-cucumber
 version: 0.1.0.0
-source: daml
+source: .
 dependencies:
   - daml-prim
   - daml-stdlib
   - daml-script
-data-dependencies:
-  - ../daml/.daml/dist/daml-cucumber-0.1.0.0.dar
 start-navigator: false
