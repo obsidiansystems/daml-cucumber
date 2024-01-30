@@ -5,11 +5,6 @@ Feature: Example
     When the party creates contract X
     Then Contract X is created
 
-  Scenario: A something that can be tested
-    Given a guy does a thing
-    Then well he did a thing
-    Then this isn't implemented
-
   Scenario: Something else that can be tested
     Given this other guy I know
     Then he also did something
