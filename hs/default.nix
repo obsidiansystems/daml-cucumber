@@ -19,6 +19,7 @@ let
       which = haskellLib.doJailbreak super.which;
       reflex = self.callCabal2nix "reflex" (pkgs.hackGet ./dep/reflex) {};
       neat-interpolation = haskellLib.doJailbreak super.neat-interpolation;
+      coquina = haskellLib.markUnbroken (haskellLib.doJailbreak super.coquina);
       daml-cucumber = haskellLib.overrideCabal
         (self.callCabal2nix "daml-cucumber" src {})
         (drv: {

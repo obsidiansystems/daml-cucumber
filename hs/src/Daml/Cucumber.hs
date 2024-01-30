@@ -2,7 +2,6 @@ module Daml.Cucumber
   ( runTestSuite
   ) where
 
-import Control.Monad.Extra
 import Control.Monad.State (State, modify, runState)
 import Daml.Cucumber.Daml.Parse
 import Daml.Cucumber.LSP
@@ -10,49 +9,42 @@ import Daml.Cucumber.Parse
 import Daml.Cucumber.Types
 import Data.Foldable
 import Data.Map (Map)
-import qualified Data.Map as Map
-import qualified Data.Set as Set
+import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Set (Set)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Text (Text)
-import qualified Data.Text.IO as T
+import Data.Text.IO qualified as T
 import Data.Traversable
 import Reflex
-import System.Directory
+import System.Directory.Contents qualified as Dir
 import System.FilePath hiding (hasExtension)
 import System.IO
 import Text.Casing
 
--- A file like .daml counts as having the extension .daml even though that isn't correct!
--- thus this function:
+-- | Compare using 'System.FilePath.takeExtension'
 hasExtension :: String -> FilePath -> Bool
-hasExtension ext path =
-  case splitExtension path of
-    ("", _) -> False
-    (_, foundExt) | foundExt == "." <> ext -> True
-    _ -> False
+hasExtension ext path = takeExtension path == ext
 
-findFilesRecursive :: (FilePath -> Bool) -> FilePath -> IO [FilePath]
-findFilesRecursive pred' dir = do
-  allContents <- listDirectory dir
-  let
-    -- We don't want the dot daml folder
-    contents = fmap (dir </>) $ filter pred' allContents
-  (directories, files) <- partitionM (doesDirectoryExist) contents
-  others <- mapM (findFilesRecursive pred') directories
-  pure $ files <> mconcat others
+-- | List all files recursively from a given root path, but don't include
+-- directories. Avoids symlink loops.
+findFilesRecursive :: FilePath -> IO [FilePath]
+findFilesRecursive dir =
+  maybe [] toList <$> Dir.buildDirTree dir
 
 runTestSuite :: FilePath -> Maybe FilePath -> FilePath -> IO ()
 runTestSuite folder mFeatureFile damlFolder = do
-  allFiles <- findFilesRecursive (/= ".daml") folder
+  allFiles <- findFilesRecursive folder
   let
-    extraPred = case mFeatureFile of
+    relevantFeatureFile = case mFeatureFile of
       Just ff -> (T.isInfixOf (T.pack ff) . T.pack)
       Nothing -> const True
 
-    featureFiles = filter (\x -> extraPred x && hasExtension "feature" x) allFiles
+    featureFiles = filter
+      (\x -> relevantFeatureFile x && hasExtension ".feature" x)
+      allFiles
 
-    damlFiles = filter (hasExtension "daml") allFiles
+    damlFiles = filter (hasExtension ".daml") allFiles
 
   Right features <- sequenceA <$> for featureFiles parseFeature
   Just files <- sequenceA <$> for damlFiles parseDamlFile
