@@ -16,7 +16,6 @@ module Cucumber
 
 import DA.Action
 import DA.Action.State.Class
-import DA.Exception
 import DA.Set
 import Daml.Script
 import LiftScript
@@ -43,22 +42,6 @@ data StepResult = StepResult
     ident : Text
     success : Bool
 
-tryCatch
-  : Script a
-  -> Script (Either Text a)
-tryCatch f = do
-  try
-    Right <$> f
-  catch
-    e@(GeneralError msg) -> do
-      pure $ Left msg
-    e@(PreconditionFailed msg) -> do
-      pure $ Left msg
-    e@(AssertionFailed msg) -> do
-      pure $ Left msg
-    e@(ArithmeticError msg) -> do
-      pure $ Left msg
-
 data Context = Context
   { currentScenario : Optional Text
   , currentStep : Optional StepKey
@@ -78,7 +61,7 @@ instance LiftScript Cucumber where
 startingContext: Context
 startingContext = Context None None mempty mempty mempty
 
-runCucumber: Cucumber a -> Script (a, Context)
+runCucumber : Cucumber a -> Script (a, Context)
 runCucumber testAction =
   runState startingContext action
   where
@@ -88,12 +71,9 @@ runCucumber testAction =
       tryRecordScenario
       pure result
 
-gets : (Applicative m, ActionState s m) => (s -> a) -> m a
-gets f = f <$> get
-
 report : Message -> Cucumber ()
 report msg =
-  modify $ \c -> c{ results = c.results <> [msg] }
+  modify $ \c -> c { results = c.results <> [msg] }
 
 tryRecordScenario : Cucumber ()
 tryRecordScenario = do
@@ -128,7 +108,6 @@ scenario' : Text -> Cucumber ()
 scenario' name = do
   tryRecordStep
   tryRecordScenario
-
   -- 'Push' on the current step
   modify (\c -> c { currentScenario = Some name })
 
