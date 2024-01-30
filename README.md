@@ -52,16 +52,13 @@ thenContractIsCreated = liftScript $ do
 
 ### daml-cucumber executable
 
-Launch daml-cucumber to run tests against a running ledger like so:
+Launch daml-cucumber to run tests like so:
 
 ```bash
 daml-cucumber \
-  --dar "path/to/your-test-0.1.0.dar" \
-  --host "localhost" \
-  --port 6865 \
-  --feat "path/to/gherkin.feature" \
-  --script "Test:main"
-```
+  --directory <path-to-your-feature-files> \
+  --source <path-to-daml-files-implementing-steps> \
+  ```
 
 daml-cucumber will run all of the scenarios in the specified feature file and produce a report in your terminal that looks like the following:
 
@@ -72,6 +69,8 @@ Feature: Example
     When the party creates contract X => Passed
     Then Contract X is created => Failed: Not implemented
 ```
+
+daml-cucumber will also notify you of missing steps, if the `--allow-missing` flag is not set, missing steps is an error.
 
 ## Building daml-cucumber
 

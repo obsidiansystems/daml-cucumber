@@ -7,6 +7,7 @@ data Opts = Opts
   { _opts_directory :: FilePath
   , _opts_featureFile :: Maybe FilePath
   , _opts_damlSourceDir :: FilePath
+  , _opts_allowMissing :: Bool
   }
 
 opts :: Parser Opts
@@ -23,6 +24,9 @@ opts = Opts
       ( long "source"
       <> metavar "FILEPATH"
       <> help "Directory the daml.yaml points to your source" )
+  <*> flag False True
+      ( long "allow-missing"
+      <> help "Don't fail if steps are missing" )
 
 main :: IO ()
 main = do
@@ -35,3 +39,4 @@ main = do
     (_opts_directory options)
     (_opts_featureFile options)
     (_opts_damlSourceDir options)
+    (_opts_allowMissing options)

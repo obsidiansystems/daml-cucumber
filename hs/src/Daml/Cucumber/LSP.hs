@@ -111,10 +111,10 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: FilePath -> FilePath -> [Text] -> IO (Map Text ([Text], Text))
+runTestLspSession :: FilePath -> FilePath -> [Text] -> IO (Either Text (Map Text ([Text], Text)))
 runTestLspSession cwd filepath testNames = do
-  putStrLn $ "Running lsp session in " <> cwd
   putStrLn $ "Generated test file is " <> filepath
+  putStrLn $ "Running lsp session in " <> cwd <> " ..."
   pid <- getProcessID
   let
     reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
@@ -124,7 +124,7 @@ runTestLspSession cwd filepath testNames = do
     pb <- getPostBuild
 
     rec
-      (_response, currentResults, currentResponses) <- damlIde cwd sendReq
+      DamlIde currentResults currentResponses failed <- damlIde cwd sendReq
 
       let
         getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
@@ -148,8 +148,10 @@ runTestLspSession cwd filepath testNames = do
           True -> Just a
           False -> Nothing
 
-    pure $ bounce ((== length reqs) . length) $ updated $ Set.toList <$> currentResults
-  pure $ mconcat $ fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result) testResults
+    pure $ leftmost [ fmap Right $ bounce ((== length reqs) . length) $ updated $ Set.toList <$> currentResults
+                    , Left <$> failed
+                    ]
+  pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
 
 safeHead :: [a] -> Maybe a
 safeHead (a:_) = Just a
@@ -220,7 +222,13 @@ instance FromJSON Response where
 damlPath :: FilePath
 damlPath = $(staticWhich "daml")
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response], Dynamic t (Set TestResponse), Dynamic t [Response])
+data DamlIde t = DamlIde
+  { damlIde_testResponses :: Dynamic t (Set TestResponse)
+  , damlIde_allResponses :: Dynamic t [Response]
+  , damlIde_exit :: Event t Text
+  }
+
+damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (DamlIde t)
 damlIde cwd rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
@@ -231,6 +239,8 @@ damlIde cwd rpcEvent = do
   performEvent_ $ ffor (_process_stderr process) $ liftIO . print
 
   let
+    errorOutput = T.decodeUtf8 <$> _process_stderr process
+
     stdout = _process_stdout process
 
     yieldIfNotEmpty f = case f of
@@ -241,6 +251,7 @@ damlIde cwd rpcEvent = do
       [] -> Just ()
       _ -> Nothing
 
+  lastError <- holdDyn "damlc exited unexpectedly" errorOutput
   rec
     buffer <- foldDyn ($) "" $ flip (<>) <$> stdout
 
@@ -250,10 +261,7 @@ damlIde cwd rpcEvent = do
 
       dResponses = fst . parseBuffer <$> buffer
 
-      result = fmapMaybe yieldIfNotEmpty parsedResponses
-      _hung = fmapMaybe yieldIfEmpty parsedResponses
-
-  pure (result, Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses, dResponses)
+  pure $ DamlIde (Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses) dResponses (current lastError <@ _process_exit process)
 
 parseBuffer :: BS.ByteString -> ([Response], BS.ByteString)
 parseBuffer bs = (catMaybes . fmap decodeStrict $ allOfEm, rest)
