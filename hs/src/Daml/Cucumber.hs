@@ -133,6 +133,7 @@ data DamlScript = DamlScript
 data DamlFunc = DamlFunc
   { damlFuncName :: Text
   , damlFuncBody :: [Text]
+  , damlFuncScenarioName :: Text
   }
   deriving (Eq, Show)
 
@@ -155,7 +156,7 @@ generateDamlSource stepMapping features = do
         pure [debug ("step:" <> (T.pack $ prettyPrintStep step)), fname, debug "step:pass"]
       let
         sname = getScenarioFunctionName scenario
-      modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames)
+      modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames) (_scenario_name scenario)
   pure ()
 
 debug :: Text -> Text
@@ -182,8 +183,9 @@ writeDamlScript path state = do
     pure ()
 
   T.hPutStrLn handle "\n"
-  for_ (damlFunctions state) $ \(DamlFunc name body) -> do
+  for_ (damlFunctions state) $ \(DamlFunc name body scenarioName) -> do
     T.hPutStrLn handle "\n"
+    T.hPutStrLn handle $ "-- | Scenario: " <> scenarioName
     T.hPutStrLn handle $ name <> ": " <> "Script ()"
     T.hPutStrLn handle $ name <> " = do"
     T.hPutStrLn handle $ "  " <> "_ <- runCucumber $ do"
