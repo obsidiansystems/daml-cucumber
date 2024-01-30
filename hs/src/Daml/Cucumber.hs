@@ -67,7 +67,6 @@ data Test = Test
   , test_missing :: Set Step
   , test_features :: [Feature]
   }
---   ,
 
 generateTest :: Files -> IO (Either Text Test)
 generateTest f = do
