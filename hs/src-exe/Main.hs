@@ -9,6 +9,7 @@ data Opts = Opts
   , _opts_damlSourceDir :: FilePath
   , _opts_allowMissing :: Bool
   , _opts_generateOnly :: Bool
+  , _opts_verbose :: Bool
   }
 
 opts :: Parser Opts
@@ -31,6 +32,9 @@ opts = Opts
   <*> flag False True
       ( long "generate-only"
       <> help "Generate daml test script but don't run the tests" )
+  <*> flag False True
+      ( long "verbose"
+      <> help "Show intermediate output from LSP test run" )
 
 main :: IO ()
 main = do
@@ -45,3 +49,4 @@ main = do
     (_opts_damlSourceDir options)
     (_opts_allowMissing options)
     (_opts_generateOnly options)
+    (_opts_verbose options)

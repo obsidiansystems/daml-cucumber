@@ -99,14 +99,15 @@ generateTest f = do
               , test_features = feats
               }
 
-runTestSuite :: FilePath -> Maybe FilePath -> FilePath -> Bool -> Bool -> IO ()
-runTestSuite folder mFeatureFile damlFolder allowMissing generateOnly = do
+runTestSuite :: FilePath -> Maybe FilePath -> FilePath -> Bool -> Bool -> Bool -> IO ()
+runTestSuite folder mFeatureFile damlFolder allowMissing generateOnly verbose = do
   f@(Files featureFiles damlFiles) <- getProjectFiles folder mFeatureFile
-  putStrLn "Found feature files"
-  for_ featureFiles $ putStrLn . ("  " <>)
-  putStrLn ""
-  putStrLn "Found DAML files"
-  for_ damlFiles $ putStrLn . ("  " <>)
+  when verbose $ do
+    putStrLn "Found feature files"
+    for_ featureFiles $ putStrLn . ("  " <>)
+    putStrLn ""
+    putStrLn "Found DAML files"
+    for_ damlFiles $ putStrLn . ("  " <>)
   mscript <- generateTest f
   case mscript of
     Left err -> do
@@ -119,7 +120,7 @@ runTestSuite folder mFeatureFile damlFolder allowMissing generateOnly = do
       case shouldRunTests of
         True -> do
           writeDamlScript testFile result
-          result' <- runTestLspSession folder testFile $ fmap damlFuncName $ damlFunctions result
+          result' <- runTestLspSession folder testFile verbose $ fmap damlFuncName $ damlFunctions result
           case result' of
             Left err -> do
               T.putStrLn $ "lsp session failed: " <> err

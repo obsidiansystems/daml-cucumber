@@ -111,8 +111,8 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: FilePath -> FilePath -> [Text] -> IO (Either Text (Map Text ([Text], Text)))
-runTestLspSession cwd filepath testNames = do
+runTestLspSession :: FilePath -> FilePath -> Bool -> [Text] -> IO (Either Text (Map Text ([Text], Text)))
+runTestLspSession cwd filepath verbose testNames = do
   putStrLn $ "Generated test file is " <> filepath
   putStrLn $ "Running lsp session in " <> cwd <> " ..."
   pid <- getProcessID
@@ -124,7 +124,7 @@ runTestLspSession cwd filepath testNames = do
     pb <- getPostBuild
 
     rec
-      DamlIde currentResults currentResponses failed <- damlIde cwd sendReq
+      DamlIde currentResults currentResponses failed <- damlIde cwd verbose sendReq
 
       let
         getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
@@ -228,15 +228,16 @@ data DamlIde t = DamlIde
   , damlIde_exit :: Event t Text
   }
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (DamlIde t)
-damlIde cwd rpcEvent = do
+damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Bool -> Event t Request -> m (DamlIde t)
+damlIde cwd verbose rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
 
   process <- createProcess damlProc (ProcessConfig sendPipe never)
-  performEvent_ $ ffor (_process_stdout process) $ liftIO . print
-  performEvent_ $ ffor (_process_stderr process) $ liftIO . print
+  when verbose $ do
+    performEvent_ $ ffor (_process_stdout process) $ liftIO . print
+    performEvent_ $ ffor (_process_stderr process) $ liftIO . print
 
   let
     errorOutput = T.decodeUtf8 <$> _process_stderr process
@@ -289,7 +290,6 @@ getDelimitedBlock input = case bsSafeHead fromFirstCurly of
     fromFirstCurly = BS.dropWhile (not . isACurly) input
 
     findClosingDelimiter :: Int -> Int -> BS.ByteString -> Int
-    -- findClosingDelimiter _ _ "" = 0
     findClosingDelimiter 0 total _ = total
     findClosingDelimiter n total input' = case bsSafeHead input' of
       Just '{' ->
