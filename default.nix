@@ -16,6 +16,8 @@ let
         buildInputs = [ damlSdk.jdk damlSdk.sdk ];
         buildPhase = ''
           mkdir dist
+          substituteInPlace daml.yaml \
+            --replace "2.6.5" ${version}
           daml build -o dist.dar
         '';
         installPhase = ''
