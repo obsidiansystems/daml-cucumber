@@ -1,40 +1,29 @@
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Daml.Cucumber.LSP where
 
-import Debug.Trace
-import Data.Maybe
-import System.Which
-import Data.Map (Map)
-import Control.Monad
 import Control.Applicative
-import qualified Data.Map as Map
-import Control.Monad.IO.Class
+import Control.Monad
 import Control.Monad.Fix
-import Reflex.Host.Headless
-import Reflex.Process
-import Reflex.Process.Lines
+import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Aeson.Types
+import qualified Data.ByteString.Char8 as BS
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified System.Process as Proc
+import NeatInterpolation (text)
+import Reflex hiding (Request, Response)
+import Reflex.Host.Headless
+import Reflex.Process
 import System.Posix.Process
 import System.Posix.Types
-import Reflex hiding (Request, Response)
-import Reflex.Process
-import System.IO
-import qualified Data.Text.IO as T
-import NeatInterpolation(text)
-import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified System.Process as Proc
+import System.Which
 import Text.HTML.TagSoup
-import qualified Data.Set as Set
-import Data.Set (Set)
 
 data RanTest = RanTest
   { ranTestTraces :: [Text]
@@ -120,10 +109,10 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: FilePath -> FilePath -> [Text] -> IO (Map Text ([Text], Text))
+runTestLspSession :: FilePath -> FilePath -> [Text] -> IO (Either Text (Map Text ([Text], Text)))
 runTestLspSession cwd filepath testNames = do
-  putStrLn $ "Running lsp session in " <> cwd
   putStrLn $ "Generated test file is " <> filepath
+  putStrLn $ "Running lsp session in " <> cwd <> " ..."
   pid <- getProcessID
   let
     reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
@@ -133,7 +122,7 @@ runTestLspSession cwd filepath testNames = do
     pb <- getPostBuild
 
     rec
-      (response, currentResults, currentResponses) <- damlIde cwd sendReq
+      DamlIde currentResults currentResponses failed <- damlIde cwd sendReq
 
       let
         getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
@@ -157,8 +146,10 @@ runTestLspSession cwd filepath testNames = do
           True -> Just a
           False -> Nothing
 
-    pure $ bounce ((== length reqs) . length) $ updated $ Set.toList <$> currentResults
-  pure $ mconcat $ fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result) testResults
+    pure $ leftmost [ fmap Right $ bounce ((== length reqs) . length) $ updated $ Set.toList <$> currentResults
+                    , Left <$> failed
+                    ]
+  pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
 
 safeHead :: [a] -> Maybe a
 safeHead (a:_) = Just a
@@ -229,7 +220,13 @@ instance FromJSON Response where
 damlPath :: FilePath
 damlPath = $(staticWhich "daml")
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (Event t [Response], Dynamic t (Set TestResponse), Dynamic t [Response])
+data DamlIde t = DamlIde
+  { damlIde_testResponses :: Dynamic t (Set TestResponse)
+  , damlIde_allResponses :: Dynamic t [Response]
+  , damlIde_exit :: Event t Text
+  }
+
+damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Event t Request -> m (DamlIde t)
 damlIde cwd rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
@@ -238,6 +235,8 @@ damlIde cwd rpcEvent = do
   process <- createProcess damlProc (ProcessConfig sendPipe never)
 
   let
+    errorOutput = T.decodeUtf8 <$> _process_stderr process
+
     stdout = _process_stdout process
 
     yieldIfNotEmpty f = case f of
@@ -248,6 +247,7 @@ damlIde cwd rpcEvent = do
       [] -> Just ()
       _ -> Nothing
 
+  lastError <- holdDyn "damlc exited unexpectedly" errorOutput
   rec
     buffer <- foldDyn ($) "" $ flip (<>) <$> stdout
 
@@ -257,10 +257,7 @@ damlIde cwd rpcEvent = do
 
       dResponses = fst . parseBuffer <$> buffer
 
-      result = fmapMaybe yieldIfNotEmpty parsedResponses
-      hung = fmapMaybe yieldIfEmpty parsedResponses
-
-  pure (result, Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses, dResponses)
+  pure $ DamlIde (Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses) dResponses (current lastError <@ _process_exit process)
 
 parseBuffer :: BS.ByteString -> ([Response], BS.ByteString)
 parseBuffer bs = (catMaybes . fmap decodeStrict $ allOfEm, rest)
@@ -281,13 +278,13 @@ getDelimitedBlock :: BS.ByteString -> (BS.ByteString, BS.ByteString)
 getDelimitedBlock input = case bsSafeHead fromFirstCurly of
   Just '{' ->
     let
-      count = (findClosingDelimiter 1 0 $ BS.drop 1 fromFirstCurly) + 1
-      result = BS.take count fromFirstCurly
+      count' = (findClosingDelimiter 1 0 $ BS.drop 1 fromFirstCurly) + 1
+      result = BS.take count' fromFirstCurly
 
       hasEndCurly = maybe False (=='}') $ bsSafeLast result
     in
     case hasEndCurly of
-       True -> (result, BS.drop (count + BS.length prefix) input)
+       True -> (result, BS.drop (count' + BS.length prefix) input)
        _ -> ("", input)
 
   _ -> ("", fromFirstCurly)
@@ -298,13 +295,13 @@ getDelimitedBlock input = case bsSafeHead fromFirstCurly of
     findClosingDelimiter :: Int -> Int -> BS.ByteString -> Int
     -- findClosingDelimiter _ _ "" = 0
     findClosingDelimiter 0 total _ = total
-    findClosingDelimiter n total input = case bsSafeHead input of
+    findClosingDelimiter n total input' = case bsSafeHead input' of
       Just '{' ->
-        findClosingDelimiter (n + 1) (total + 1) $ BS.drop 1 input
+        findClosingDelimiter (n + 1) (total + 1) $ BS.drop 1 input'
       Just '}' ->
-        findClosingDelimiter (n - 1) (total + 1) $ BS.drop 1 input
+        findClosingDelimiter (n - 1) (total + 1) $ BS.drop 1 input'
       Nothing -> total
-      _ -> findClosingDelimiter n (total + 1) $ BS.drop 1 input
+      _ -> findClosingDelimiter n (total + 1) $ BS.drop 1 input'
 
 isACurly :: Char -> Bool
 isACurly = (\x -> x == '{' || x == '}')
@@ -318,20 +315,6 @@ bsSafeLast :: BS.ByteString -> Maybe Char
 bsSafeLast bs
   | BS.null bs = Nothing
   | otherwise = Just $ BS.last bs
-
--- test :: FilePath -> IO ()
--- test fp = do
---   fileData <- BS.readFile fp
---   T.putStrLn $ tShow $ parseResponses fileData
-  -- BS.writeFile (fp <> ".result") $ BS.intercalate "\n\n\n\n\n" $ BS.split '\n' $ fileData
-  -- T.putStrLn $
-
-
--- together :: IO ()
--- together = do
---   test "../hangreq.txt"
---   test "../nothangreq.txt"
-  -- T.putStrLn $ tShow $ parseResponses fileData
 
 mkDidOpenUri :: Text -> RPC Text
 mkDidOpenUri uri =

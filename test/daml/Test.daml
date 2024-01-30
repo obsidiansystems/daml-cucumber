@@ -1,28 +1,35 @@
 module Test where
 
-import DA.Foldable
-import DA.Stack
+import Cucumber
 import DA.Action
-import DA.Set
-import Daml.Script
-import DA.Exception
-import DA.Either
-import StateT
 import DA.Action.State.Class
-import Tester
+import DA.Either
+import DA.Exception
+import DA.Foldable
+import DA.Optional
+import DA.Set
+import DA.Stack
+import Daml.Script
+import StateT
+
+template X
+  with
+    owner : Party
+  where
+    signatory owner
 
 main : Script [Message]
 main = do
-  (_, ctx) <- runTester allTests
+  (_, ctx) <- runCucumber allTests
   pure ctx.results
 
-allTests: Tester ()
+allTests: Cucumber ()
 allTests = do
   testStepsCanOnlyBeDefinedOnce
   testMultipleScenariosInOneTest
   testScenarioOutlineByJustEnumerating
 
-testStepsCanOnlyBeDefinedOnce: Tester ()
+testStepsCanOnlyBeDefinedOnce: Cucumber ()
 testStepsCanOnlyBeDefinedOnce = do
   step Given "a party"
   liftScript $ allocateParty "alice"
@@ -31,7 +38,7 @@ testStepsCanOnlyBeDefinedOnce = do
   parties <- liftScript listKnownParties
   step Then "Contract X is created"
 
-testMultipleScenariosInOneTest: Tester ()
+testMultipleScenariosInOneTest: Cucumber ()
 testMultipleScenariosInOneTest = do
   scenario' "A something that can be tested"
    -- ^ Note you can optionally define the Scenario if you wanna, though you don't have to
@@ -74,32 +81,27 @@ instance Show AnimalType where
     NotToaster -> "toaster"
 
 -- Given there is a animal and a type
-a: Tester ()
+a: Cucumber ()
 a = do
   pure ()
 
 -- Then the Dog is pretty cool I guess
-b: Tester ()
+b: Cucumber ()
 b = do
   pure ()
 
 -- And the Cat is a toaster
-c: Tester ()
+c: Cucumber ()
 c = do
   pure ()
 
 -- And the Dog is a mammal
-d: Tester ()
+d: Cucumber ()
 d = do
   pure ()
 
--- Given a party
-givenAParty: Tester ()
-givenAParty = do
-  pure ()
-
 -- Given a guy does a thing
-testScenarioOutlineByJustEnumerating: Tester ()
+testScenarioOutlineByJustEnumerating: Cucumber ()
 testScenarioOutlineByJustEnumerating = do
   step Given "there is a animal and a animal type"
   forA_ categories $ \category -> do
@@ -110,39 +112,48 @@ testScenarioOutlineByJustEnumerating = do
     types = [minBound .. maxBound]
 
 -- Given there is a document and a type
-givenAAnimalType : Tester ()
+givenAAnimalType : Cucumber ()
 givenAAnimalType = pure ()
 
 -- Given this other guy I know
-givenThisOtherGuyIKnow : Tester ()
+givenThisOtherGuyIKnow : Cucumber ()
 givenThisOtherGuyIKnow = pure ()
 
+-- Given a party
+givenAParty: Cucumber Party
+givenAParty = liftScript $ allocateParty "alice"
+
 -- When the party creates contract X
-whenThePartyCreatesContact : Tester ()
-whenThePartyCreatesContact = pure ()
+whenThePartyCreatesContact : Cucumber (ContractId X)
+whenThePartyCreatesContact = liftScript $ do
+  [alice] <- listKnownParties
+  submit alice.party $ createCmd X with owner = alice.party
 
 -- Then Contract X is created
-thenContractIsCreated : Tester ()
-thenContractIsCreated = pure ()
+thenContractIsCreated : Cucumber ()
+thenContractIsCreated = liftScript $ do
+  [alice] <- listKnownParties
+  contracts <- query @X alice.party
+  assertMsg "Must have exactly one contract" $ Prelude.length contracts == 1
 
 -- Then he also did something
-thenHeAlsoDidSomething : Tester ()
+thenHeAlsoDidSomething : Cucumber ()
 thenHeAlsoDidSomething = pure ()
 
 -- Then the Dog Mammal is pretty cool I guess
-thenTheDogMammalIsCool : Tester ()
+thenTheDogMammalIsCool : Cucumber ()
 thenTheDogMammalIsCool = pure ()
 
 -- Then the Cat is pretty cool I guess
-thenWait : Tester ()
+thenWait : Cucumber ()
 thenWait = pure ()
 
 -- Then this isn't implemented
-thenNotImplemented : Tester ()
+thenNotImplemented : Cucumber ()
 thenNotImplemented = pure ()
 
 -- Then well he did a thing
-thenWellHeDidAThing : Tester ()
+thenWellHeDidAThing : Cucumber ()
 thenWellHeDidAThing = do
   liftScript $ do
     allocatePartyWithHint "X" (PartyIdHint "X")
@@ -150,13 +161,13 @@ thenWellHeDidAThing = do
   pure ()
 
 -- And the Parrot is a Salad
-andTheIden : Tester ()
+andTheIden : Cucumber ()
 andTheIden = pure ()
 
 -- And the Cat is a Bird
-isPdf : Tester ()
+isPdf : Cucumber ()
 isPdf = pure ()
 
-testSingleCase: AnimalCategory -> AnimalType -> Tester ()
+testSingleCase: AnimalCategory -> AnimalType -> Cucumber ()
 testSingleCase dc dt = do
   step And $ "the " <> show dc <> " is a " <> show dt

@@ -1,4 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 module Daml.Cucumber.Types where
 
 import Data.Aeson

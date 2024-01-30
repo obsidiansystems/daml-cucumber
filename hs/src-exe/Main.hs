@@ -25,6 +25,9 @@ opts = Opts
       ( long "source"
       <> metavar "FILEPATH"
       <> help "Directory the daml.yaml points to your source" )
+  <*> flag False True
+      ( long "allow-missing"
+      <> help "Don't fail if steps are missing" )
 
   where
     intOption :: Mod OptionFields Int -> Parser Int

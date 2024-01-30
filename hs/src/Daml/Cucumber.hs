@@ -1,48 +1,39 @@
 module Daml.Cucumber where
 
-import System.IO
-import Text.Casing
-import Data.Foldable
-import Data.Traversable
-import Control.Monad
+import System.Exit
 import Control.Monad.Extra
-import qualified Data.Set as Set
-import Data.Set (Set)
-import Control.Monad.Fix
 import Control.Monad.IO.Class
-import Daml.Cucumber.Parse
-import Daml.Cucumber.Types
+import Control.Monad.State (State, modify, runState, runStateT)
 import Daml.Cucumber.Daml.Parse
 import Daml.Cucumber.LSP
-import Data.Aeson
+import Daml.Cucumber.Parse
+import Daml.Cucumber.Types
 import qualified Data.Aeson as Aeson
-import Data.ByteString (ByteString)
-import Data.Map (Map)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Data.Map as Map
-import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
+import Data.Foldable
+import Data.Map (Map)
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+import Data.Set (Set)
+import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text.IO as T
+import Data.Traversable
 import Reflex
-import Reflex.Host.Headless
-import Reflex.Process
-import Reflex.Process.Lines
-import System.Process
-import qualified System.Process as Proc
-import System.Exit
 import System.Directory
 import System.FilePath hiding (hasExtension)
-import Control.Monad.State
+import System.IO
+import Text.Casing
 
 data Opts = Opts
   { _opts_directory :: FilePath
   , _opts_featureFile :: Maybe FilePath
   , _opts_damlSourceDir :: FilePath
+  , _opts_allowMissing :: Bool
   }
 
 writeFeatureJson :: FilePath -> Feature -> IO ()
-writeFeatureJson path f = LBS.writeFile path (encode f)
+writeFeatureJson path f = LBS.writeFile path (Aeson.encode f)
 
 -- A file like .daml counts as having the extension .daml even though that isn't correct!
 -- thus this function:
@@ -54,26 +45,26 @@ hasExtension ext path =
     _ -> False
 
 findFilesRecursive :: (FilePath -> Bool) -> FilePath -> IO [FilePath]
-findFilesRecursive pred dir = do
+findFilesRecursive pred' dir = do
   allContents <- listDirectory dir
   let
     -- We don't want the dot daml folder
-    contents = fmap (dir </>) $ filter pred allContents
+    contents = fmap (dir </>) $ filter pred' allContents
   (directories, files) <- partitionM (doesDirectoryExist) contents
-  others <- mapM (findFilesRecursive pred) directories
+  others <- mapM (findFilesRecursive pred') directories
   pure $ files <> mconcat others
 
 runTestSuite :: Opts -> IO ()
-runTestSuite (Opts folder mFeatureFile damlFolder) = do
-  files <- findFilesRecursive (/= ".daml") folder
+runTestSuite (Opts folder mFeatureFile damlFolder allowMissing) = do
+  allFiles <- findFilesRecursive (/= ".daml") folder
   let
     extraPred = case mFeatureFile of
       Just ff -> (T.isInfixOf (T.pack ff) . T.pack)
       Nothing -> const True
 
-    featureFiles = filter (\x -> extraPred x && hasExtension "feature" x) files
+    featureFiles = filter (\x -> extraPred x && hasExtension "feature" x) allFiles
 
-    damlFiles = filter (hasExtension "daml") files
+    damlFiles = filter (hasExtension "daml") allFiles
 
   Right features <- sequenceA <$> for featureFiles parseFeature
   Just files <- sequenceA <$> for damlFiles parseDamlFile
@@ -91,40 +82,60 @@ runTestSuite (Opts folder mFeatureFile damlFolder) = do
     missingSteps = Set.difference requiredSteps definedSteps
     stepMapping = mconcat $ fmap makeStepMapping files
 
-  case Set.null missingSteps of
-    False -> do
-      putStrLn "Cannot run features, missing steps:"
-      for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+    (_, result) = runState (generateDamlSource definedSteps stepMapping features) (DamlScript mempty mempty)
+    testfile = (damlFolder </> "Generated.daml")
 
+    shouldRunTests = allowMissing || Set.null missingSteps
+
+  case shouldRunTests of
     True -> do
-      let
-        (_, result) = runState (generateDamlSource stepMapping features) (DamlScript mempty mempty)
-        testfile = (damlFolder </> "Generated.daml")
       writeDamlScript testfile result
-      testResults <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
+      result <- runTestLspSession folder testfile $ fmap damlFuncName $ damlFunctions result
+      case result of
+        Left error -> do
+          T.putStrLn $ "lsp session failed: " <> error
+          exitFailure
 
-      for_ features $ \feature -> do
-        for_ (_feature_scenarios feature) $ \s@(Scenario name steps) -> do
-          T.putStrLn $ "Scenario: " <> name
+        Right testResults -> do
+          success <- evaluateResults definedSteps testResults features
+          when (not $ Set.null missingSteps) $ do
+            putStrLn "Missing steps:"
+            for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+          when (not success) $ exitFailure
+
+    False -> do
+      putStrLn "Missing steps:"
+      for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+      exitFailure
+
+evaluateResults :: Set Step -> Map Text ([Text], Text) -> [Feature] -> IO Bool
+evaluateResults definedSteps testResults features = do
+  (_, success) <- flip runStateT True $ do
+    for_ features $ \feature -> do
+      for_ (filter (isScenarioRunnable definedSteps) $ _feature_scenarios feature) $ \s@(Scenario name steps) -> do
+        liftIO $ T.putStrLn $ "Scenario: " <> name
+        let
+           fname = getScenarioFunctionName s
+
+           errors = maybe "" snd $ Map.lookup fname testResults
+           resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
+           getResult s' = Map.lookup s' resultMap
+
+        for_ steps $ \stp -> do
           let
-             fname = getScenarioFunctionName s
-
-             errors = maybe "" snd $ Map.lookup fname testResults
-             resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
-             getResult s = Map.lookup s resultMap
-
-          for_ steps $ \s -> do
-            let
-              pretty = prettyPrintStep s
-              result = getResult $ T.pack pretty
-            case result of
-              Just True -> putStrLn $ ("  " <> pretty <> " => OK")
-              Just False -> do
+            pretty = prettyPrintStep stp
+          case getResult $ T.pack pretty of
+            Just True -> liftIO $ putStrLn $ ("  " <> pretty <> " => OK")
+            Just False ->  do
+              modify (const False)
+              liftIO $ do
                 putStrLn $ "  " <> pretty <> " => FAILED"
                 T.putStrLn $ "    " <> errors
-              _ -> putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
-      pure ()
-  pure ()
+            _ -> do
+              modify (const False)
+              liftIO $ putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
+
+  pure success
 
 collateStepResults :: [Text] -> [(Text, Bool)]
 collateStepResults (name:"pass": rest) = (name, True) : collateStepResults rest
@@ -146,6 +157,7 @@ data DamlScript = DamlScript
 data DamlFunc = DamlFunc
   { damlFuncName :: Text
   , damlFuncBody :: [Text]
+  , damlFuncScenarioName :: Text
   }
   deriving (Eq, Show)
 
@@ -157,10 +169,10 @@ addFunction :: DamlFunc -> DamlScript -> DamlScript
 addFunction func state =
   state { damlFunctions = func : (damlFunctions state) }
 
-generateDamlSource :: Map Step StepFunc -> [Feature] -> State DamlScript ()
-generateDamlSource stepMapping features = do
+generateDamlSource :: Set Step -> Map Step StepFunc -> [Feature] -> State DamlScript ()
+generateDamlSource definedSteps stepMapping features = do
   for_ features $ \feature -> do
-    for_ (_feature_scenarios feature) $ \scenario -> do
+    for_ (filter (isScenarioRunnable definedSteps) $ _feature_scenarios feature) $ \scenario -> do
       fnames <- fmap mconcat $ for (_scenario_steps scenario) $ \step -> do
         let
           Just (StepFunc file fname) = Map.lookup step stepMapping
@@ -168,7 +180,7 @@ generateDamlSource stepMapping features = do
         pure [debug ("step:" <> (T.pack $ prettyPrintStep step)), fname, debug "step:pass"]
       let
         sname = getScenarioFunctionName scenario
-      modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames)
+      modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames) (_scenario_name scenario)
   pure ()
 
 debug :: Text -> Text
@@ -186,7 +198,7 @@ writeDamlScript path state = do
 
   T.hPutStrLn handle $ "module " <> moduleName <> " where"
 
-  T.hPutStrLn handle "import Tester"
+  T.hPutStrLn handle "import Cucumber"
   T.hPutStrLn handle "import StateT"
   T.hPutStrLn handle "import Daml.Script"
 
@@ -195,22 +207,26 @@ writeDamlScript path state = do
     pure ()
 
   T.hPutStrLn handle "\n"
-  for_ (damlFunctions state) $ \(DamlFunc name body) -> do
+  for_ (damlFunctions state) $ \(DamlFunc name body scenarioName) -> do
     T.hPutStrLn handle "\n"
+    T.hPutStrLn handle $ "-- | Scenario: " <> scenarioName
     T.hPutStrLn handle $ name <> ": " <> "Script ()"
     T.hPutStrLn handle $ name <> " = do"
-    T.hPutStrLn handle $ "  " <> "_ <- runTester $ do"
+    T.hPutStrLn handle $ "  " <> "_ <- runCucumber $ do"
     for_ body $ \action -> do
       T.hPutStrLn handle $ "    " <> action
     T.hPutStrLn handle $ "  pure ()"
   hClose handle
+
+isScenarioRunnable :: Set Step -> Scenario -> Bool
+isScenarioRunnable definedSteps scenario = all (flip Set.member definedSteps) (_scenario_steps scenario)
 
 makeStepMapping :: DamlFile -> Map Step StepFunc
 makeStepMapping file =
   mconcat $ fmapMaybe (\d -> flip Map.singleton (StepFunc (damlFilePath file) (definitionName d)) <$> definitionStep d) $ damlFileDefinitions file
 
 prettyPrintStep :: Step -> String
-prettyPrintStep (Step keyword body) = show keyword <> " " <> T.unpack body
+prettyPrintStep (Step key body) = show key <> " " <> T.unpack body
 
 getAllRequiredFeatureSteps :: Feature -> Set Step
 getAllRequiredFeatureSteps =
