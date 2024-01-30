@@ -1,1 +1,2 @@
-import ./default.nix
+{ rev ? "invalid" }:
+import ./default.nix { inherit rev; }

@@ -1,3 +1,6 @@
+{
+  rev ? "invalid"
+}:
 let
   platform = import ./nix/reflex-platform {};
   pkgs = platform.nixpkgs;
@@ -65,7 +68,7 @@ let
       docker load -i ${x.container}
     '');
     pushContainers = forVersions (x: ''
-      docker push daml-cucumber:${x.version}
+      docker push obsidiansys/daml-cucumber:${x.version}-${rev}
     '');
   in pkgs.writeShellScriptBin "docker-push-generated" (builtins.concatStringsSep "\n" (loadContainers ++ pushContainers));
 in {
