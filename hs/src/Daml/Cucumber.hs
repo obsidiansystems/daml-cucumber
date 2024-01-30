@@ -1,6 +1,7 @@
 module Daml.Cucumber where
 
 import System.Exit
+import Data.Char
 import Control.Monad.Extra
 import Control.Monad.IO.Class
 import Control.Monad.State (State, modify, runState, runStateT)
@@ -188,7 +189,7 @@ debug n = "debug \"" <> n <> "\""
 
 getScenarioFunctionName :: Scenario -> Text
 getScenarioFunctionName =
-  T.pack . toCamel . fromWords . T.unpack . _scenario_name
+  T.pack . toCamel . fromWords . unwords . fmap (filter isAlphaNum) . words . T.unpack . _scenario_name
 
 writeDamlScript :: FilePath -> DamlScript -> IO ()
 writeDamlScript path state = do
