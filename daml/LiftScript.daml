@@ -1,0 +1,24 @@
+{-|
+Module      : LiftScript
+Description : Lift Script actions
+Copyright   : (c) Obsidian Systems LLC, 2024
+License     : BSD-3-Clause
+Maintainer  : maintainer@obsidian.systems
+
+Promotes daml Script actions to other types of actions.
+-}
+module LiftScript where
+
+import StateT
+import Daml.Script
+
+class LiftScript m where
+  liftScript : Script a -> m a
+
+instance LiftScript Script where
+  liftScript action = action
+
+instance (Applicative m, LiftScript m, Action m) => LiftScript (StateT s m) where
+  liftScript action = StateT $ \s -> do
+    a <- liftScript action
+    pure (a, s)
