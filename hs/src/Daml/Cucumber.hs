@@ -141,7 +141,7 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              result' <- runTestLspSession "../test" testFile verbose $ fmap damlFuncName $ damlFunctions result
+              result' <- runTestLspSession damlLocation testFile verbose $ fmap damlFuncName $ damlFunctions result
               case result' of
                 Left err -> do
                   T.putStrLn $ "lsp session failed: " <> err
