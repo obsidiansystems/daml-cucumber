@@ -1,6 +1,8 @@
 module Daml.Cucumber.Daml.Parse
   ( DamlFile(..)
   , Definition(..)
+  , Type(..)
+  , TypeSig(..)
   , parseDamlFile
   ) where
 
@@ -31,7 +33,7 @@ data FunctionType = FunctionType
   deriving (Eq, Show)
 
 data Type = Type Text [Text]
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data TypeSig
   = Reg Type

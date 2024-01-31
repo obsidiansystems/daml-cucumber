@@ -1,0 +1,16 @@
+{-|
+Module      : Default
+Description : Default values for types
+Copyright   : (c) Obsidian Systems LLC, 2024
+License     : BSD-3-Clause
+Maintainer  : maintainer@obsidian.systems
+
+Allows the specification of a default for a type
+-}
+module Default where
+
+class Default a where
+  def: a
+
+instance Default () where
+  def = ()

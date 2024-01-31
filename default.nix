@@ -35,8 +35,7 @@ let
         buildPhase = ''
           cp ${damlLib}/dist.dar test/dist.dar
           substituteInPlace test/daml.yaml \
-            --replace "2.6.5" ${version} \
-            --replace "../daml/.daml/dist/daml-cucumber-0.1.0.0.dar" dist.dar
+            --replace "2.6.5" ${version}
           ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --source ./test --features ./test/features.feature
           cd test && ${damlSdk.sdk}/bin/daml test > test-result
         '';

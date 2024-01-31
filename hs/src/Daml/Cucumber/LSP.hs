@@ -2,6 +2,7 @@ module Daml.Cucumber.LSP
   ( runTestLspSession
   ) where
 
+import Daml.Cucumber.Utils
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Fix
@@ -45,6 +46,10 @@ data TestResult
   = TestResultRan RanTest
   | TestResultDoesn'tCompile Text
   deriving (Eq, Ord, Show)
+
+getCompileError :: TestResult -> Maybe Text
+getCompileError (TestResultDoesn'tCompile reason) = Just reason
+getCompileError _ = Nothing
 
 getTracesAndErrors :: TestResult -> ([Text], Text)
 getTracesAndErrors (TestResultRan (RanTest traces errors)) = (traces, errors)
@@ -96,7 +101,7 @@ instance FromJSON TestResponse where
         T.drop 1 . T.dropWhile (/= '=') . T.dropWhile (/= '&') <$> params .: "uri"
 
       extractData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-code transaction")] :: Tag Text))
-      extractNoteData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-hl-warning")] :: Tag Text))
+      extractNoteData = innerText . dropWhile (~/= (TagOpen "span" [("class", "da-hl-warning")] :: Tag Text))
 
 getRPC :: Response -> Maybe (RPC Value)
 getRPC (Notification rpc) = Just rpc
@@ -150,14 +155,13 @@ runTestLspSession cwd filepath verbose testNames = do
           True -> Just a
           False -> Nothing
 
-    pure $ leftmost [ fmap Right $ bounce ((== length reqs) . length) $ updated $ Set.toList <$> currentResults
+      newResults = updated $ Set.toList <$> currentResults
+
+    pure $ leftmost [ fmap Right $ bounce ((== length reqs) . length) $ newResults
+                    , fmap (Left . ("Daml doesn't compile (are you missing a Default instance for your context type?):\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n" . catMaybes . fmap (getCompileError . testResponseResult)) <$> newResults
                     , Left <$> failed
                     ]
   pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
-
-safeHead :: [a] -> Maybe a
-safeHead (a:_) = Just a
-safeHead _ = Nothing
 
 tShow :: Show a => a -> Text
 tShow = T.pack . show
