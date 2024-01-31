@@ -1,15 +1,16 @@
 module Main where
 
-import Control.Concurrent
-import Control.Monad
 import Daml.Cucumber
-import Daml.Cucumber.Types
-import Daml.Cucumber.LSP
-import qualified Data.Text as T
 import Options.Applicative
-import System.Exit
-import System.IO
-import System.IO.Temp
+
+data Opts = Opts
+  { _opts_directory :: FilePath
+  , _opts_featureFile :: Maybe FilePath
+  , _opts_damlSourceDir :: FilePath
+  , _opts_allowMissing :: Bool
+  , _opts_generateOnly :: Bool
+  , _opts_verbose :: Bool
+  }
 
 opts :: Parser Opts
 opts = Opts
@@ -28,10 +29,12 @@ opts = Opts
   <*> flag False True
       ( long "allow-missing"
       <> help "Don't fail if steps are missing" )
-
-  where
-    intOption :: Mod OptionFields Int -> Parser Int
-    intOption = option auto
+  <*> flag False True
+      ( long "generate-only"
+      <> help "Generate daml test script but don't run the tests" )
+  <*> flag False True
+      ( long "verbose"
+      <> help "Show intermediate output from LSP test run" )
 
 main :: IO ()
 main = do
@@ -40,4 +43,10 @@ main = do
     , progDesc "Run cucumber tests in daml script"
     , header "daml-cucumber cli tool"
     ]
-  runTestSuite options
+  runTestSuite
+    (_opts_directory options)
+    (_opts_featureFile options)
+    (_opts_damlSourceDir options)
+    (_opts_allowMissing options)
+    (_opts_generateOnly options)
+    (_opts_verbose options)

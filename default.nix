@@ -28,6 +28,22 @@ let
           cp dist.dar $out/
         '';
       };
+      damlTest = pkgs.stdenvNoCC.mkDerivation {
+        name = "daml-cucumber-test";
+        src = pkgs.lib.cleanSource ./.;
+        buildInputs = [ damlSdk.jdk damlSdk.sdk ];
+        buildPhase = ''
+          cp ${damlLib}/dist.dar test/dist.dar
+          substituteInPlace test/daml.yaml \
+            --replace "2.6.5" ${version} \
+            --replace "../daml/.daml/dist/daml-cucumber-0.1.0.0.dar" dist.dar
+          ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --directory ./test --source ./test/daml --feature-file ./test/features.feature
+          cd test && ${damlSdk.sdk}/bin/daml test > test-result
+        '';
+        installPhase = ''
+          cat test-result > $out
+        '';
+      };
       container = mkContainer damlSdk hsBuild (version + "-${rev}");
       inherit version;
     };

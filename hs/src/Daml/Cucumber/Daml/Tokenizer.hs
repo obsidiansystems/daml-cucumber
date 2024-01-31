@@ -1,4 +1,8 @@
-module Daml.Cucumber.Daml.Tokenizer where
+module Daml.Cucumber.Daml.Tokenizer
+  ( Token(..)
+  , tokenize
+  , tokenToText
+  ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
