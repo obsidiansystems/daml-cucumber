@@ -1,11 +1,14 @@
 module Daml.Cucumber
   ( runTestSuite
+  , Opts(..)
   ) where
 
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (State, modify, runState, runStateT)
 import Daml.Cucumber.Daml.Parse
+import Daml.Cucumber.Daml.Yaml (DamlYaml(..))
+import Daml.Cucumber.Daml.Yaml qualified as Yaml
 import Daml.Cucumber.LSP
 import Daml.Cucumber.Parse
 import Daml.Cucumber.Types
@@ -20,6 +23,7 @@ import Data.Text (Text)
 import Data.Text.IO qualified as T
 import Data.Traversable
 import Reflex
+import System.Directory qualified as Dir
 import System.Directory.Contents qualified as Dir
 import System.Exit
 import System.FilePath hiding (hasExtension)
@@ -27,6 +31,15 @@ import System.IO
 import Text.Casing
 import Text.Parsec.Error qualified as Parsec
 import Text.Parsec.Pos qualified as Parsec
+
+-- | daml-cucumber configuration
+data Opts = Opts
+  { _opts_featureSource :: FilePath
+  , _opts_damlSource :: FilePath
+  , _opts_allowMissing :: Bool
+  , _opts_generateOnly :: Bool
+  , _opts_verbose :: Bool
+  }
 
 -- | Check whether a filepath has a particular extension (including ".")
 hasExtension :: String -> FilePath -> Bool
@@ -41,26 +54,30 @@ findFilesRecursive dir =
 data Files = Files
   { files_feature :: [FilePath]
   , files_daml :: [FilePath]
+  , files_damlyaml :: DamlYaml
   }
 
 -- | Retrieve .daml and .feature files
-getProjectFiles :: FilePath -> Maybe FilePath -> IO Files
-getProjectFiles folder mFeatureFile = do
-  allFiles <- findFilesRecursive folder
-  let
-    relevantFeatureFile = case mFeatureFile of
-      Just ff -> (T.isInfixOf (T.pack ff) . T.pack)
-      Nothing -> const True
-
-    featureFiles = filter
-      (\x -> relevantFeatureFile x && hasExtension ".feature" x)
-      allFiles
-
-    damlFiles = filter (hasExtension ".daml") allFiles
-  pure $ Files
-    { files_feature = featureFiles
-    , files_daml = damlFiles
-    }
+getProjectFiles :: FilePath -> FilePath -> IO (Either String Files)
+getProjectFiles damlSource featureSource = do
+  damlFiles <- filter (hasExtension ".daml") <$>
+    findFilesRecursive damlSource
+  featureFiles <- filter (hasExtension ".feature") <$>
+    findFilesRecursive featureSource
+  let damlyaml = damlSource </> "daml.yaml"
+  yamlExists <- Dir.doesFileExist damlyaml
+  case (damlFiles, featureFiles, yamlExists) of
+    ([], _, _) -> pure $ Left "No daml source files found"
+    (_, [], _) -> pure $ Left "No feature files found"
+    (_, _, False) -> pure $ Left "daml.yaml not found"
+    _ -> do
+      Yaml.parseDamlYaml damlyaml >>= pure . \case
+        Left err -> Left $ Yaml.friendlyDamlYamlError err
+        Right yml -> Right $ Files
+          { files_feature = featureFiles
+          , files_daml = damlFiles
+          , files_damlyaml = yml
+          }
 
 data Test = Test
   { test_damlScript :: DamlScript
@@ -87,7 +104,6 @@ generateTest f = do
             definitions = mconcat $ fmap damlFileDefinitions damls
             requiredSteps = mconcat $ fmap getAllRequiredFeatureSteps feats
             definedSteps = getAllDefinedSteps definitions
-
             missingSteps = Set.difference requiredSteps definedSteps
             stepMapping = mconcat $ fmap makeStepMapping damls
             (_, result) = runState (generateDamlSource definedSteps stepMapping feats) (DamlScript mempty mempty)
@@ -99,47 +115,52 @@ generateTest f = do
               , test_features = feats
               }
 
-runTestSuite :: FilePath -> Maybe FilePath -> FilePath -> Bool -> Bool -> Bool -> IO ()
-runTestSuite folder mFeatureFile damlFolder allowMissing generateOnly verbose = do
-  f@(Files featureFiles damlFiles) <- getProjectFiles folder mFeatureFile
-  when verbose $ do
-    putStrLn "Found feature files"
-    for_ featureFiles $ putStrLn . ("  " <>)
-    putStrLn ""
-    putStrLn "Found DAML files"
-    for_ damlFiles $ putStrLn . ("  " <>)
-  mscript <- generateTest f
-  case mscript of
+runTestSuite :: Opts -> IO ()
+runTestSuite opts = do
+  let Opts featureLocation damlLocation allowMissing generateOnly verbose = opts
+  getProjectFiles damlLocation featureLocation >>= \case
     Left err -> do
-      putStrLn $ T.unpack err
+      putStrLn err
       exitFailure
-    Right (Test result definedSteps missingSteps features) -> do
-      let
-        testFile = (damlFolder </> "Generated.daml")
-        shouldRunTests = (allowMissing || Set.null missingSteps) && not generateOnly
-      case shouldRunTests of
-        True -> do
-          writeDamlScript testFile result
-          result' <- runTestLspSession folder testFile verbose $ fmap damlFuncName $ damlFunctions result
-          case result' of
-            Left err -> do
-              T.putStrLn $ "lsp session failed: " <> err
-              exitFailure
-            Right testResults -> do
-              success <- evaluateResults definedSteps testResults features
-              when (not $ Set.null missingSteps) $ do
-                putStrLn "Missing steps:"
-                for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
-              when (not success) $ exitFailure
-        False -> do
-          if generateOnly
-            then do
+    Right f@(Files featureFiles damlFiles damlyaml) -> do
+      when verbose $ do
+        putStrLn "Found feature files"
+        for_ featureFiles $ putStrLn . ("  " <>)
+        putStrLn ""
+        putStrLn "Found DAML files"
+        for_ damlFiles $ putStrLn . ("  " <>)
+      mscript <- generateTest f
+      case mscript of
+        Left err -> do
+          putStrLn $ T.unpack err
+          exitFailure
+        Right (Test result definedSteps missingSteps features) -> do
+          let
+            testFile = (damlLocation </> damlYaml_source damlyaml </> "Generated.daml")
+            shouldRunTests = (allowMissing || Set.null missingSteps) && not generateOnly
+          case shouldRunTests of
+            True -> do
               writeDamlScript testFile result
-              putStrLn $ "Test script written to " <> testFile
-            else do
-              putStrLn "Missing steps:"
-              for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
-              exitFailure
+              result' <- runTestLspSession "../test" testFile verbose $ fmap damlFuncName $ damlFunctions result
+              case result' of
+                Left err -> do
+                  T.putStrLn $ "lsp session failed: " <> err
+                  exitFailure
+                Right testResults -> do
+                  success <- evaluateResults definedSteps testResults features
+                  when (not $ Set.null missingSteps) $ do
+                    putStrLn "Missing steps:"
+                    for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+                  when (not success) $ exitFailure
+            False -> do
+              if generateOnly
+                then do
+                  writeDamlScript testFile result
+                  putStrLn $ "Test script written to " <> testFile
+                else do
+                  putStrLn "Missing steps:"
+                  for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
+                  exitFailure
 
 evaluateResults :: Set Step -> Map Text ([Text], Text) -> [Feature] -> IO Bool
 evaluateResults definedSteps testResults features = do

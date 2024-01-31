@@ -3,25 +3,12 @@ module Main where
 import Daml.Cucumber
 import Options.Applicative
 
-data Opts = Opts
-  { _opts_directory :: FilePath
-  , _opts_featureFile :: Maybe FilePath
-  , _opts_damlSourceDir :: FilePath
-  , _opts_allowMissing :: Bool
-  , _opts_generateOnly :: Bool
-  , _opts_verbose :: Bool
-  }
-
 opts :: Parser Opts
 opts = Opts
   <$> strOption
-      ( long "directory"
+      ( long "features"
       <> metavar "FILEPATH"
       <> help "Directory where feature files and daml files are" )
-  <*> optional (strOption
-      ( long "feature-file"
-      <> metavar "FILEPATH"
-      <> help "Directory where feature files and daml files are" ))
   <*> strOption
       ( long "source"
       <> metavar "FILEPATH"
@@ -43,10 +30,4 @@ main = do
     , progDesc "Run cucumber tests in daml script"
     , header "daml-cucumber cli tool"
     ]
-  runTestSuite
-    (_opts_directory options)
-    (_opts_featureFile options)
-    (_opts_damlSourceDir options)
-    (_opts_allowMissing options)
-    (_opts_generateOnly options)
-    (_opts_verbose options)
+  runTestSuite options
