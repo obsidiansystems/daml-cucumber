@@ -6,6 +6,7 @@ module Daml.Cucumber
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (State, modify, runState, runStateT)
+import Daml.Cucumber.Utils
 import Daml.Cucumber.Daml.Parse
 import Daml.Cucumber.Daml.Yaml (DamlYaml(..))
 import Daml.Cucumber.Daml.Yaml qualified as Yaml
@@ -87,6 +88,33 @@ data Test = Test
   , test_features :: [Feature]
   }
 
+
+getUsedContextTypes :: DamlFile -> Set (FilePath, Text)
+getUsedContextTypes (DamlFile fp definitions) =
+  foldr getContextTypeUse mempty definitions
+  where
+    getContextTypeUse (Definition _ _ ts) b = case ts of
+      (Reg (Type "Cucumber" (context:_))) -> Set.insert (fp, context) b
+      _ -> b
+
+getContextTypeDefinitionFile :: Text -> [DamlFile] -> Maybe FilePath
+getContextTypeDefinitionFile typeName files =
+  safeHead $ fmap damlFilePath $ filter filterFunc files
+  where
+    filterFunc (DamlFile fp defs) =
+      any (isDefForType) defs
+
+    isDefForType :: Definition -> Bool
+    isDefForType (Definition name _ _) | typeName == name = True
+    isDefForType _ = False
+
+getContextType :: [DamlFile] -> Either Text Text
+getContextType files = case (Set.toList $ mconcat $ fmap getUsedContextTypes files) of
+  [] -> Left "No context type found"
+  [(_, typeName)] -> Right typeName
+  multipleContextTypes -> Left $ T.unlines $ "Test suite contains state that differs between steps" :
+    (fmap (\(file, typeName) -> "  Type " <> typeName <> " in file " <> T.pack file) multipleContextTypes)
+
 generateTest :: Files -> IO (Either Text Test)
 generateTest f = do
   mfeats <- sequenceA <$> for (files_feature f) parseFeature
@@ -98,23 +126,35 @@ generateTest f = do
       ] <> map (T.pack . Parsec.messageString) (Parsec.errorMessages err)
     Right feats -> do
       mdamls <- sequenceA <$> for (files_daml f) parseDamlFile
-      pure $ case mdamls of
-        Nothing -> Left "Error parsing daml files" -- TODO add source information
-        Just damls ->
+      case mdamls of
+        Nothing -> pure $ Left "Error parsing daml files" -- TODO add source information
+        Just damls -> do
           let
             definitions = mconcat $ fmap damlFileDefinitions damls
             requiredSteps = mconcat $ fmap getAllRequiredFeatureSteps feats
             definedSteps = getAllDefinedSteps definitions
             missingSteps = Set.difference requiredSteps definedSteps
             stepMapping = mconcat $ fmap makeStepMapping damls
-            (_, result) = runState (generateDamlSource definedSteps stepMapping feats) (DamlScript mempty mempty)
-          in
-            Right $ Test
-              { test_damlScript = result
-              , test_defined = definedSteps
-              , test_missing = missingSteps
-              , test_features = feats
-              }
+            usedContextTypes = mconcat $ fmap getUsedContextTypes damls
+
+          case getContextType damls of
+            Right ctxType -> do
+              let
+                defaultDamlState = DamlScript mempty mempty
+
+                initialState = case getContextTypeDefinitionFile ctxType damls of
+                  Just file -> addImport (T.pack file) $ defaultDamlState
+                  Nothing -> defaultDamlState
+
+                (_, result) = runState (generateDamlSource definedSteps stepMapping feats) initialState
+              pure $ Right $ Test
+               { test_damlScript = result
+               , test_defined = definedSteps
+               , test_missing = missingSteps
+               , test_features = feats
+               }
+
+            Left err -> pure $ Left err
 
 runTestSuite :: Opts -> IO ()
 runTestSuite opts = do
