@@ -5,10 +5,11 @@ import Options.Applicative
 
 opts :: Parser Opts
 opts = Opts
-  <$> strOption
+  <$> many (strOption
       ( long "features"
+      <> short 'f'
       <> metavar "FILEPATH"
-      <> help "Directory where cucumber feature files are located, or the path to a single feature file." )
+      <> help "Directory where cucumber feature files are located, or the path to a single feature file." ))
   <*> strOption
       ( long "source"
       <> metavar "FILEPATH"

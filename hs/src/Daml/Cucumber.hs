@@ -34,7 +34,7 @@ import Text.Parsec.Pos qualified as Parsec
 
 -- | daml-cucumber configuration
 data Opts = Opts
-  { _opts_featureSource :: FilePath
+  { _opts_featureSource :: [FilePath]
   , _opts_damlSource :: FilePath
   , _opts_allowMissing :: Bool
   , _opts_generateOnly :: Bool
@@ -58,12 +58,12 @@ data Files = Files
   }
 
 -- | Retrieve .daml and .feature files
-getProjectFiles :: FilePath -> FilePath -> IO (Either String Files)
-getProjectFiles damlSource featureSource = do
+getProjectFiles :: FilePath -> [FilePath] -> IO (Either String Files)
+getProjectFiles damlSource featureSources = do
   damlFiles <- filter (hasExtension ".daml") <$>
     findFilesRecursive damlSource
-  featureFiles <- filter (hasExtension ".feature") <$>
-    findFilesRecursive featureSource
+  featureFiles <- filter (hasExtension ".feature") . concat <$>
+    mapM findFilesRecursive featureSources
   let damlyaml = damlSource </> "daml.yaml"
   yamlExists <- Dir.doesFileExist damlyaml
   case (damlFiles, featureFiles, yamlExists) of
