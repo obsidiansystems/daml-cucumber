@@ -1,5 +1,6 @@
 module Daml.Cucumber.Daml.Yaml where
 
+import Control.Monad.IO.Class
 import Data.Aeson.KeyMap qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.Text (Text)
@@ -18,9 +19,9 @@ data DamlYamlError
   = DamlYamlError_Parse ParseException
   | DamlYamlError_MissingField
 
-parseDamlYaml :: FilePath -> IO (Either DamlYamlError DamlYaml)
+parseDamlYaml :: MonadIO m => FilePath -> m (Either DamlYamlError DamlYaml)
 parseDamlYaml fp = do
-  yaml <- BS.readFile fp
+  yaml <- liftIO $ BS.readFile fp
   pure $ fromYamlParse $ decodeEither' yaml
 
 
