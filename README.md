@@ -85,15 +85,7 @@ nix-build
 
 From the project root, run `nix-shell` to get a shell with the `daml` command, `daml sdk`, `ghci`, `cabal`, and necessary haskell packages installed.
 
-Build the daml-cucumber daml library:
-
-```bash
-nix-shell
-cd daml
-daml build
-```
-
-Run the cucumber tests:
+Now you can run the cucumber tests:
 
 ```bash
 nix-shell
