@@ -8,7 +8,7 @@ This repository includes both a Daml library and an executable that reads gherki
 
 ### Daml library
 
-The daml-cucumber daml library is found in the `./daml` folder of this project. You can import `daml-cucumber-<version>.dar`, into your project as one of the [`data-dependencies` in your daml.yaml file](https://docs.daml.com/tools/assistant-build.html#add-a-package-to-a-multi-package-configuration).
+The daml-cucumber daml library is found in the `./daml` folder of this project. You can build and import `daml-cucumber-<version>.dar`, into your project as one of the [`data-dependencies` in your daml.yaml file](https://docs.daml.com/tools/assistant-build.html#add-a-package-to-a-multi-package-configuration).
 
 Your Daml test suite should import [`Cucumber`](./daml/Cucumber.daml), which provides the functions `step`, `liftScript`, and the `Cucumber` [Action](https://docs.daml.com/daml/intro/5_Restrictions.html#actions-and-do-blocks). These can be used to define cucumber scenario implementations. For example, given the following template and feature file:
 
@@ -57,7 +57,7 @@ Launch daml-cucumber to run tests like so:
 ```bash
 daml-cucumber \
   --features <path-to-your-feature-files> \
-  --source <path-to-daml-files-implementing-steps> \
+  --source <path-to-daml-files-implementing-steps>
   ```
 
 daml-cucumber will run all of the scenarios in the specified feature file and produce a report in your terminal that looks like the following:
@@ -71,6 +71,30 @@ Feature: Example
 ```
 
 daml-cucumber will also notify you of missing steps, if the `--allow-missing` flag is not set, missing steps is an error.
+
+#### Inspecting test results with VSCode
+
+daml-cucumber generates a daml file that can be opened in VSCode or evaluated with `daml test`. It is generated whenever daml-cucumber runs, but you can also generate it at any time with the following command:
+
+```bash
+daml-cucumber
+  --features <path-to-your-feature-files> \
+  --source <path-to-daml-files-implementing-steps> \
+  --generate-only
+```
+
+This will created a file called `Generated.daml` that contains a function for each scenario in your feature files:
+
+```haskell
+-- | Scenario: a contract can be created
+aContractCanBeCreated: Script ()
+aContractCanBeCreated = do
+  _ <- runCucumber $ do
+    givenAParty
+    whenThePartyCreatesContact
+    thenContractIsCreated
+  pure ()
+```
 
 ## Building daml-cucumber
 
