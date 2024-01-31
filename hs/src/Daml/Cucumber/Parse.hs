@@ -2,13 +2,14 @@ module Daml.Cucumber.Parse
   ( parseFeature
   ) where
 
+import Control.Monad.IO.Class
 import Daml.Cucumber.Types
 import qualified Language.Abacate as A
 import Text.Parsec.Error
 
-parseFeature :: FilePath -> IO (Either ParseError Feature)
+parseFeature :: MonadIO m => FilePath -> m (Either ParseError Feature)
 parseFeature fp = do
-  fmap fromAbacate <$> A.parseFile fp
+  fmap fromAbacate <$> liftIO (A.parseFile fp)
 
 fromAbacate :: A.Feature -> Feature
 fromAbacate (A.Feature _ _ header _ elements _) = Feature

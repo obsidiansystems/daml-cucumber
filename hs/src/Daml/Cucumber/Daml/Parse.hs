@@ -7,6 +7,7 @@ module Daml.Cucumber.Daml.Parse
   ) where
 
 import Control.Monad
+import Control.Monad.IO.Class
 import Daml.Cucumber.Daml.Parser
 import Daml.Cucumber.Daml.Tokenizer
 import Daml.Cucumber.Types
@@ -119,6 +120,6 @@ parseFileDefinitions :: FilePath -> IO (Maybe [Definition])
 parseFileDefinitions path = do
   parseFile path $ parseAll parseDefinition
 
-parseDamlFile :: FilePath -> IO (Maybe DamlFile)
+parseDamlFile :: MonadIO m => FilePath -> m (Maybe DamlFile)
 parseDamlFile path =
-  fmap (DamlFile path) <$> parseFileDefinitions path
+  fmap (DamlFile path) <$> liftIO (parseFileDefinitions path)

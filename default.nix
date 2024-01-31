@@ -88,8 +88,7 @@ let
     '');
   in pkgs.writeShellScriptBin "docker-push-generated" (builtins.concatStringsSep "\n" (loadContainers ++ pushContainers));
 in {
-  inherit isDirty rev;
-  container = outputs.daml-265.container;
+  inherit isDirty rev outputs;
   recurseForDerivations = true;
   pushScript = genScriptForPush;
-} // outputs
+}

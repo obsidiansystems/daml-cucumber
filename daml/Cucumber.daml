@@ -12,13 +12,14 @@ module Cucumber
   ( module Cucumber
   , module LiftScript
   , module StateT
+  , module Default
   ) where
 
 import DA.Action.State.Class
 import Daml.Script
+import Default
 import LiftScript
 import StateT
-import Default
 
 newtype Cucumber s a = Cucumber
   { unCucumber : StateT s Script a
