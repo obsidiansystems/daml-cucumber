@@ -1,13 +1,15 @@
 module Test where
 
 import Cucumber
+import DA.Action.State.Class
 import DA.Foldable
 import Daml.Script
-import Default
 
-data BasicContext = BasicContext
+data BasicContext = BasicContext with
+  party1 : Optional Party
+
 instance Default BasicContext where
-  def = BasicContext
+  def = BasicContext None
 
 template X
   with
@@ -103,20 +105,26 @@ givenThisOtherGuyIKnow : Cucumber BasicContext ()
 givenThisOtherGuyIKnow = pure ()
 
 -- Given a party
-givenAParty: Cucumber BasicContext Party
-givenAParty = liftScript $ allocateParty "alice"
+givenAParty: Cucumber BasicContext ()
+givenAParty = do
+  p <- liftScript $ allocateParty "alice"
+  put $ BasicContext (Some p)
+
+withParty1 f = do
+  malice <- gets party1
+  case malice of
+    Some alice -> f alice
+    _ -> error "Missing party1"
 
 -- When the party creates contract X
 whenThePartyCreatesContact : Cucumber BasicContext (ContractId X)
-whenThePartyCreatesContact = liftScript $ do
-  [alice] <- listKnownParties
-  submit alice.party $ createCmd X with owner = alice.party
+whenThePartyCreatesContact = withParty1 $ \alice ->
+  liftScript $ submit alice $ createCmd X with owner = alice
 
 -- Then Contract X is created
 thenContractIsCreated : Cucumber BasicContext ()
-thenContractIsCreated = liftScript $ do
-  [alice] <- listKnownParties
-  contracts <- query @X alice.party
+thenContractIsCreated = withParty1 $ \alice -> liftScript $ do
+  contracts <- query @X alice
   assertMsg "Must have exactly one contract" $ Prelude.length contracts == 1
 
 -- Then he also did something

@@ -32,22 +32,36 @@ Feature: Example
 You can implement each step as a `Cucumber` action. As long as you annotate the step with a comment that matches the step definition in your feature file, it will be detected and run at the appropriate time.
 
 ```haskell
+data Ctx = Ctx with
+  party1 : Optional Party
+
+instance Default Ctx where
+  def = Ctx with party1 = None
+
 -- Given a party
-givenAParty: Cucumber Party
-givenAParty = liftScript $ allocateParty "alice"
+givenAParty: Cucumber Ctx ()
+givenAParty = do
+  p <- liftScript $ allocateParty "alice"
+  set $ Ctx with party1 = p
 
 -- When the party creates contract X
-whenThePartyCreatesContact : Cucumber (ContractId X)
-whenThePartyCreatesContact = liftScript $ do
-  [alice] <- listKnownParties
-  submit alice.party $ createCmd X with owner = alice.party
+whenThePartyCreatesContact : Cucumber Ctx ()
+whenThePartyCreatesContact = do
+  malice <- gets party1
+  case malice of
+    Some alice -> liftScript $ submit alice $ createCmd X with owner = alice
+    _ -> error "Missing party1"
 
 -- Then Contract X is created
-thenContractIsCreated : Cucumber ()
-thenContractIsCreated = liftScript $ do
-  [alice] <- listKnownParties
-  contracts <- query @X alice.party
-  assertMsg "Must have exactly one contract" $ Prelude.length contracts == 1
+thenContractIsCreated : Cucumber Ctx ()
+thenContractIsCreated = do
+  malice <- gets party1
+  case malice of
+    Some alice -> do
+      contracts <- query @X alice
+      assertMsg "Must have exactly one contract" $ Prelude.length contracts == 1
+    _ -> error "Missing party1"
+
 ```
 
 ### daml-cucumber executable
