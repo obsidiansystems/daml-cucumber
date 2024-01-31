@@ -2,10 +2,11 @@ module Main where
 
 import Daml.Cucumber
 import Options.Applicative
+import Options.Applicative.NonEmpty
 
 opts :: Parser Opts
 opts = Opts
-  <$> many (strOption
+  <$> some1 (strOption
       ( long "features"
       <> short 'f'
       <> metavar "FILEPATH"

@@ -31,10 +31,11 @@ import System.IO
 import Text.Casing
 import Text.Parsec.Error qualified as Parsec
 import Text.Parsec.Pos qualified as Parsec
+import Data.List.NonEmpty (NonEmpty)
 
 -- | daml-cucumber configuration
 data Opts = Opts
-  { _opts_featureSource :: [FilePath]
+  { _opts_featureSource :: NonEmpty FilePath
   , _opts_damlSource :: FilePath
   , _opts_allowMissing :: Bool
   , _opts_generateOnly :: Bool
@@ -58,7 +59,7 @@ data Files = Files
   }
 
 -- | Retrieve .daml and .feature files
-getProjectFiles :: FilePath -> [FilePath] -> IO (Either String Files)
+getProjectFiles :: FilePath -> NonEmpty FilePath -> IO (Either String Files)
 getProjectFiles damlSource featureSources = do
   damlFiles <- filter (hasExtension ".daml") <$>
     findFilesRecursive damlSource
