@@ -99,5 +99,5 @@ Run the cucumber tests:
 nix-shell
 cd hs
 cabal repl exe:daml-cucumber
-:main --source ../test/daml --features ../test/features.feature
+:main --source ../test --features ../test/features.feature
 ```
