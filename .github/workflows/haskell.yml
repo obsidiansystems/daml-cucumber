@@ -28,13 +28,11 @@ jobs:
           ${{ runner.os }}-${{ matrix.ghc }}-build-
           ${{ runner.os }}-${{ matrix.ghc }}-
           ${{ runner.os }}
-    - name: Install dependencies
+    - name: Build
       run: |
         cd hs
         cabal update
         cabal configure
-        cabal build --only-dependencies --enable-tests --enable-benchmarks
-    - name: Build
-      run: cabal build --enable-tests --enable-benchmarks all
+        cabal build --enable-tests --enable-benchmarks all
     - name: Run tests
       run: cabal test all
