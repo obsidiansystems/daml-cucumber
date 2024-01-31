@@ -6,6 +6,8 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
+import Control.Monad.Log
+import Daml.Cucumber.Log
 import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Char8 as BS
@@ -111,16 +113,16 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: FilePath -> FilePath -> Bool -> [Text] -> IO (Either Text (Map Text ([Text], Text)))
+runTestLspSession :: MonadIO m => FilePath -> FilePath -> Bool -> [Text] -> Log m (Either Text (Map Text ([Text], Text)))
 runTestLspSession cwd filepath verbose testNames = do
-  putStrLn $ "Generated test file is " <> filepath
-  putStrLn $ "Running lsp session in " <> cwd <> " ..."
-  pid <- getProcessID
+  logDebug $ "Generated test file is " <> T.pack filepath
+  logDebug $ "Running lsp session in " <> T.pack cwd <> " ..."
+  pid <- liftIO getProcessID
   let
     reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
     allReqs = ("Init", Request 0 (mkInitPayload pid)) : reqs
 
-  testResults <- runHeadlessApp $ do
+  testResults <- liftIO $ runHeadlessApp $ do
     pb <- getPostBuild
 
     rec

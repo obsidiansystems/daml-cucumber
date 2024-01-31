@@ -50,7 +50,7 @@ data Scenario = Scenario
   { _scenario_name :: Text
   , _scenario_steps :: [Step]
   }
-  deriving (Eq, Show, Read, Generic)
+  deriving (Eq, Show, Read, Generic, Ord)
 
 instance ToJSON Scenario where
   toEncoding = genericToEncoding (defaultOptions {
@@ -82,7 +82,7 @@ data Outline = Outline
   { _outline_examples :: [Examples]
   , _outline_scenario :: Scenario
   }
-  deriving (Eq, Show, Read, Generic)
+  deriving (Eq, Show, Read, Generic, Ord)
 
 instance ToJSON Outline where
   toEncoding = genericToEncoding (defaultOptions {
@@ -98,7 +98,7 @@ data Examples = Examples
   { _examples_name :: Text
   , _examples_table :: [[Text]]
   }
-  deriving (Eq, Show, Read, Generic)
+  deriving (Eq, Show, Read, Generic, Ord)
 
 instance ToJSON Examples where
   toEncoding = genericToEncoding (defaultOptions {
@@ -125,7 +125,7 @@ data Feature = Feature
   , _feature_scenarios :: [Scenario]
   , _feature_outlines :: [Outline]
   }
-  deriving (Eq, Show, Read, Generic)
+  deriving (Eq, Show, Read, Generic, Ord)
 
 instance ToJSON Feature where
   toEncoding = genericToEncoding (defaultOptions {

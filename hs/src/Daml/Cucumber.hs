@@ -1,19 +1,24 @@
 module Daml.Cucumber
-  ( runTestSuite
-  , Opts(..)
+  ( Opts(..)
+  , start
   ) where
 
+import Control.Arrow (first)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.State (State, modify, runState, runStateT)
+import Control.Monad.Log
+import Control.Monad.Log.Colors (wrapSGRCode)
+import Control.Monad.State (State, modify, runState)
 import Daml.Cucumber.Daml.Parse
 import Daml.Cucumber.Daml.Yaml (DamlYaml(..))
 import Daml.Cucumber.Daml.Yaml qualified as Yaml
 import Daml.Cucumber.LSP
+import Daml.Cucumber.Log
 import Daml.Cucumber.Parse
 import Daml.Cucumber.Types
 import Data.Char
 import Data.Foldable
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -23,6 +28,7 @@ import Data.Text (Text)
 import Data.Text.IO qualified as T
 import Data.Traversable
 import Reflex
+import System.Console.ANSI
 import System.Directory qualified as Dir
 import System.Directory.Contents qualified as Dir
 import System.Exit
@@ -31,7 +37,6 @@ import System.IO
 import Text.Casing
 import Text.Parsec.Error qualified as Parsec
 import Text.Parsec.Pos qualified as Parsec
-import Data.List.NonEmpty (NonEmpty)
 
 -- | daml-cucumber configuration
 data Opts = Opts
@@ -41,6 +46,13 @@ data Opts = Opts
   , _opts_generateOnly :: Bool
   , _opts_verbose :: Bool
   }
+
+start :: Opts -> IO ()
+start opts = do
+  withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
+    runLoggingT (runTestSuite opts) $ \msg -> case msgSeverity msg of
+      Debug | not (_opts_verbose opts) -> pure ()
+      _ -> stdoutHandler (renderLogMessage msg)
 
 -- | Check whether a filepath has a particular extension (including ".")
 hasExtension :: String -> FilePath -> Bool
@@ -59,14 +71,14 @@ data Files = Files
   }
 
 -- | Retrieve .daml and .feature files
-getProjectFiles :: FilePath -> NonEmpty FilePath -> IO (Either String Files)
+getProjectFiles :: MonadIO m => FilePath -> NonEmpty FilePath -> m (Either String Files)
 getProjectFiles damlSource featureSources = do
   damlFiles <- filter (hasExtension ".daml") <$>
-    findFilesRecursive damlSource
+    liftIO (findFilesRecursive damlSource)
   featureFiles <- filter (hasExtension ".feature") . concat <$>
-    mapM findFilesRecursive featureSources
+    mapM (liftIO . findFilesRecursive) featureSources
   let damlyaml = damlSource </> "daml.yaml"
-  yamlExists <- Dir.doesFileExist damlyaml
+  yamlExists <- liftIO $ Dir.doesFileExist damlyaml
   case (damlFiles, featureFiles, yamlExists) of
     ([], _, _) -> pure $ Left "No daml source files found"
     (_, [], _) -> pure $ Left "No feature files found"
@@ -87,7 +99,7 @@ data Test = Test
   , test_features :: [Feature]
   }
 
-generateTest :: Files -> IO (Either Text Test)
+generateTest :: Files -> Log IO (Either Text Test)
 generateTest f = do
   mfeats <- sequenceA <$> for (files_feature f) parseFeature
   case mfeats of
@@ -116,25 +128,24 @@ generateTest f = do
               , test_features = feats
               }
 
-runTestSuite :: Opts -> IO ()
+logExitFailure :: MonadIO m => Text -> Log m ()
+logExitFailure reason = do
+  logError reason
+  liftIO exitFailure
+
+runTestSuite :: Opts -> Log IO ()
 runTestSuite opts = do
   let Opts featureLocation damlLocation allowMissing generateOnly verbose = opts
   getProjectFiles damlLocation featureLocation >>= \case
-    Left err -> do
-      putStrLn err
-      exitFailure
+    Left err -> logExitFailure $ T.pack err
     Right f@(Files featureFiles damlFiles damlyaml) -> do
-      when verbose $ do
-        putStrLn "Found feature files"
-        for_ featureFiles $ putStrLn . ("  " <>)
-        putStrLn ""
-        putStrLn "Found DAML files"
-        for_ damlFiles $ putStrLn . ("  " <>)
+      logDebug $ T.unlines $
+        "Found feature files:" : map T.pack featureFiles
+      logDebug $ T.unlines $
+        "Found daml files:" : map T.pack damlFiles
       mscript <- generateTest f
       case mscript of
-        Left err -> do
-          putStrLn $ T.unpack err
-          exitFailure
+        Left err -> logExitFailure err
         Right (Test result definedSteps missingSteps features) -> do
           let
             testFile = (damlLocation </> damlYaml_source damlyaml </> "Generated.daml")
@@ -144,53 +155,83 @@ runTestSuite opts = do
               writeDamlScript testFile result
               result' <- runTestLspSession damlLocation testFile verbose $ fmap damlFuncName $ damlFunctions result
               case result' of
-                Left err -> do
-                  T.putStrLn $ "lsp session failed: " <> err
-                  exitFailure
+                Left err -> logExitFailure ("LSP session failed: " <> err)
                 Right testResults -> do
                   success <- evaluateResults definedSteps testResults features
                   when (not $ Set.null missingSteps) $ do
-                    putStrLn "Missing steps:"
-                    for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
-                  when (not success) $ exitFailure
+                    let msg = T.pack $ unlines $
+                          "Missing steps:" : map prettyPrintStep (Set.toList missingSteps)
+                    if allowMissing
+                      then logInfo msg
+                      else logWarning msg
+                  when (not success) $ logExitFailure "Test failures reported"
             False -> do
               if generateOnly
                 then do
                   writeDamlScript testFile result
-                  putStrLn $ "Test script written to " <> testFile
+                  logInfo $ "Test script written to " <> T.pack testFile
                 else do
-                  putStrLn "Missing steps:"
-                  for_ (Set.toList missingSteps) $ putStrLn . prettyPrintStep
-                  exitFailure
+                  logExitFailure $ T.pack $ unlines $
+                    "Missing steps:" : map prettyPrintStep (toList missingSteps)
 
-evaluateResults :: Set Step -> Map Text ([Text], Text) -> [Feature] -> IO Bool
+evaluateResults :: MonadIO m => Set Step -> Map Text ([Text], Text) -> [Feature] -> Log m Bool
 evaluateResults definedSteps testResults features = do
-  (_, success) <- flip runStateT True $ do
-    for_ features $ \feature -> do
-      for_ (filter (isScenarioRunnable definedSteps) $ _feature_scenarios feature) $ \s@(Scenario name steps) -> do
-        liftIO $ T.putStrLn $ "Scenario: " <> name
-        let
-           fname = getScenarioFunctionName s
+  let r = report definedSteps testResults features
+  logNotice $ renderReport r
+  pure $ all (==StepSucceeded) $ fmap snd $ snd $ foldMap (first $ const ()) $ snd $ foldMap (first $ const ()) r
 
-           errors = maybe "" snd $ Map.lookup fname testResults
-           resultMap = Map.fromList $ maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst ) $ Map.lookup fname testResults
-           getResult s' = Map.lookup s' resultMap
+data StepReport = StepSucceeded | StepFailed Text | StepDidNotRun
+  deriving (Eq)
 
-        for_ steps $ \stp -> do
-          let
-            pretty = prettyPrintStep stp
-          case getResult $ T.pack pretty of
-            Just True -> liftIO $ putStrLn $ ("  " <> pretty <> " => OK")
-            Just False ->  do
-              modify (const False)
-              liftIO $ do
-                putStrLn $ "  " <> pretty <> " => FAILED"
-                T.putStrLn $ "    " <> errors
-            _ -> do
-              modify (const False)
-              liftIO $ putStrLn $ ("  " <> pretty <> " => DID NOT RUN")
+-- | We aren't using a Map here to preserve the ordering
+type Report = [(Feature, [(Scenario, [(Step, StepReport)])])]
 
-  pure success
+report
+  :: Set Step
+  -> Map Text ([Text], Text)
+  -> [Feature]
+  -> Report
+report definedSteps testResults features =
+  let
+    filterScenarios = filter (isScenarioRunnable definedSteps)
+    scenarioMap = map (\f -> (f, filterScenarios $ _feature_scenarios f)) features
+    resultMap = fmap (fmap (\scenarios -> map (\s -> (s, getResults s)) scenarios)) scenarioMap
+  in resultMap
+  where
+    getResults :: Scenario -> [(Step, StepReport)]
+    getResults s =
+      let
+        Scenario _ steps = s
+        fname = getScenarioFunctionName s
+        errors = maybe "" snd $ Map.lookup fname testResults
+        resultMap = scenarioResultMap s
+        getResult = flip Map.lookup resultMap
+      in
+        flip map steps $ \stp -> (stp,) $
+          case getResult (T.pack $ prettyPrintStep stp) of
+            Just True -> StepSucceeded
+            Just False -> StepFailed errors
+            Nothing -> StepDidNotRun
+    scenarioResultMap :: Scenario -> Map Text Bool
+    scenarioResultMap s =
+      Map.fromList $
+        maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst) $
+          Map.lookup (getScenarioFunctionName s) testResults
+
+renderReport :: Report -> Text
+renderReport r = T.unlines $ fmap (T.unlines . fmap T.unlines) $
+  ffor r $ \(f, ss) ->
+    ([_feature_name f] :) $ ffor ss $ \(s, stps) ->
+      (("  Scenario: " <> _scenario_name s) :) $ ffor stps $ \(stp, result) ->
+        ("    " <> (T.pack $ show $ _step_keyword stp) <> " " <> _step_body stp) <> renderResult result
+  where
+    renderResult = (" => " <>) . \case
+      StepSucceeded -> successColor "OK"
+      StepFailed err -> errorColor $ "FAILED\n      " <> err
+      StepDidNotRun -> warningColor "DID NOT RUN"
+    errorColor = wrapSGRCode [SetColor Foreground Dull Red]
+    warningColor = wrapSGRCode [SetColor Foreground Vivid Yellow]
+    successColor = wrapSGRCode [SetColor Foreground Vivid Green]
 
 collateStepResults :: [Text] -> [(Text, Bool)]
 collateStepResults (name:"pass": rest) = (name, True) : collateStepResults rest
@@ -245,8 +286,8 @@ getScenarioFunctionName :: Scenario -> Text
 getScenarioFunctionName =
   T.pack . toCamel . fromWords . unwords . fmap (filter isAlphaNum) . words . T.unpack . _scenario_name
 
-writeDamlScript :: FilePath -> DamlScript -> IO ()
-writeDamlScript path state = do
+writeDamlScript :: MonadIO m => FilePath -> DamlScript -> m ()
+writeDamlScript path state = liftIO $ do
   handle <- openFile path WriteMode
 
   let moduleName = T.pack (takeBaseName path)

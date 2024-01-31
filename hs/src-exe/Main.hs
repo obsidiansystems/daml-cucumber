@@ -23,6 +23,7 @@ opts = Opts
       <> help "Generate daml test script but don't run the tests" )
   <*> flag False True
       ( long "verbose"
+      <> short 'v'
       <> help "Show intermediate output from LSP test run" )
 
 main :: IO ()
@@ -32,4 +33,4 @@ main = do
     , progDesc "Run cucumber tests in daml script"
     , header "daml-cucumber cli tool"
     ]
-  runTestSuite options
+  start options
