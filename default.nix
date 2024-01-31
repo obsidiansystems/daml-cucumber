@@ -37,7 +37,7 @@ let
           substituteInPlace test/daml.yaml \
             --replace "2.6.5" ${version} \
             --replace "../daml/.daml/dist/daml-cucumber-0.1.0.0.dar" dist.dar
-          ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --directory ./test --source ./test/daml --feature-file ./test/features.feature
+          ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --source ./test --features ./test/features.feature
           cd test && ${damlSdk.sdk}/bin/daml test > test-result
         '';
         installPhase = ''
