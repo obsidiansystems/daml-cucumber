@@ -6,6 +6,4 @@ dependencies:
   - daml-prim
   - daml-stdlib
   - daml-script
-data-dependencies:
-  - ../daml/.daml/dist/daml-cucumber-0.1.0.0.dar
 start-navigator: false
