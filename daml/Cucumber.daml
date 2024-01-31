@@ -58,6 +58,12 @@ newtype Cucumber a = Cucumber
 instance LiftScript Cucumber where
   liftScript action = Cucumber (liftScript action)
 
+instance ActionFail Cucumber where
+  fail = liftScript . fail
+
+instance CanAssert Cucumber where
+  assertFail = liftScript . assertFail
+
 startingContext: Context
 startingContext = Context None None mempty mempty mempty
 
