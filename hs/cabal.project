@@ -3,4 +3,4 @@ packages: .
 source-repository-package
   type: git
   location: https://github.com/obsidiansystems/abacate
-  tag: 5cb310050f7483f9a57b85e97cb3f07917473f94
+  tag: 2b94f2b79923a326e1f32b3ad16aabc4b0e79931
