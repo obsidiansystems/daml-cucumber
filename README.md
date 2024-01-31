@@ -56,7 +56,7 @@ Launch daml-cucumber to run tests like so:
 
 ```bash
 daml-cucumber \
-  --directory <path-to-your-feature-files> \
+  --features <path-to-your-feature-files> \
   --source <path-to-daml-files-implementing-steps> \
   ```
 
@@ -99,5 +99,5 @@ Run the cucumber tests:
 nix-shell
 cd hs
 cabal repl exe:daml-cucumber
-:main --directory ../test --source ../test/daml --feature-file ../test/features.feature
+:main --source ../test/daml --features ../test/features.feature
 ```

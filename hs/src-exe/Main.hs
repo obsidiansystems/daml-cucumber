@@ -8,11 +8,11 @@ opts = Opts
   <$> strOption
       ( long "features"
       <> metavar "FILEPATH"
-      <> help "Directory where feature files and daml files are" )
+      <> help "Directory where cucumber feature files are located, or the path to a single feature file." )
   <*> strOption
       ( long "source"
       <> metavar "FILEPATH"
-      <> help "Directory the daml.yaml points to your source" )
+      <> help "Directory containing daml.yaml" )
   <*> flag False True
       ( long "allow-missing"
       <> help "Don't fail if steps are missing" )
