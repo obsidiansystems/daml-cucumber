@@ -137,3 +137,24 @@ To speed up the build process, you can fetch pre-built artifacts from our binary
         binary-cache-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= obsidian-open-source:KP1UbL7OIibSjFo9/2tiHCYLm/gJMfy8Tim7+7P4o0I=
         binary-caches-parallel-connections = 40
         ```
+
+### Docker Containers
+
+To build the docker containers you can run
+```bash
+nix-build -A daml-$sdkversion.container
+```
+
+and you'll get a .tar.gz that you can use
+
+```bash
+docker load -i $tarfile
+```
+
+to import
+
+to push all the containers you can run
+
+```bash
+$(nix-build -A pushScript)/bin/docker-push-generated
+```
