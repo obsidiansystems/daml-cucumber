@@ -83,7 +83,10 @@ start opts = do
               pb' <- delay 0.1 pb
               out <- performEvent $ ffor go $ \_ ->
                 liftIO $ catch (runLoggingT (runTestSuite opts) logger) $ \SomeException {} -> return ()
-              isReady <- holdDyn False $ True <$ out
+              isReady <- holdDyn False $ leftmost
+                [ True <$ out
+                , False <$ go
+                ]
               waitingForReload <- holdDyn False $ fmap fst $ attachPromptlyDyn (not <$> isReady) anyChange
               go <- debounce 0.25 $ leftmost
                 [ (()<$) $ ffilter fst $ attachPromptlyDyn isReady anyChange
