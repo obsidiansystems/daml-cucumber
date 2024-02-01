@@ -25,6 +25,7 @@ import NeatInterpolation (text)
 import Reflex hiding (Request, Response)
 import Reflex.Host.Headless
 import Reflex.Process
+import System.Directory
 import System.Posix.Process
 import System.Posix.Types
 import qualified System.Process as Proc
@@ -128,9 +129,11 @@ runTestLspSession
 runTestLspSession cwd filepath verbose testNames = do
   logDebug $ "Generated test file is " <> T.pack filepath
   logDebug $ "Running lsp session in " <> T.pack cwd <> " ..."
+  cwd' <- liftIO $ canonicalizePath cwd
+  filepath' <- liftIO $ canonicalizePath filepath
   pid <- liftIO getProcessID
   let
-    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
+    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath' tname)) $ zip [1..] testNames
     allReqs = ("Init", Request 0 (mkInitPayload pid)) : reqs
 
   logHandler <- askLogHandler
@@ -138,7 +141,7 @@ runTestLspSession cwd filepath verbose testNames = do
     pb <- getPostBuild
 
     rec
-      DamlIde currentResults currentResponses failed <- damlIde logHandler cwd verbose sendReq
+      DamlIde currentResults currentResponses failed <- damlIde logHandler cwd' verbose sendReq
 
       let
         getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
