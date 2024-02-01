@@ -29,7 +29,7 @@ let
         '';
       };
       damlTest = pkgs.stdenvNoCC.mkDerivation {
-        name = "daml-cucumber-test";
+        name = "daml-cucumber-test-${version}";
         src = pkgs.lib.cleanSource ./.;
         buildInputs = [ damlSdk.jdk damlSdk.sdk ];
         buildPhase = ''
@@ -43,7 +43,7 @@ let
         '';
       };
       damlExample = pkgs.stdenvNoCC.mkDerivation {
-        name = "daml-cucumber-example";
+        name = "daml-cucumber-example-${version}";
         src = pkgs.lib.cleanSource ./.;
         buildInputs = [ damlSdk.jdk damlSdk.sdk ];
         buildPhase = ''
