@@ -5,4 +5,5 @@ in builtins.mapAttrs (k: v: {
   daml-cucumber = v.hsBuild.daml-cucumber;
   daml-lib = v.damlLib;
   daml-test = v.damlTest;
+  daml-example = v.damlExample;
   }) defNix.outputs
