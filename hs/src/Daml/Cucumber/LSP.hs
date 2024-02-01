@@ -8,9 +8,11 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Monad.Log
+import Control.Lens
 import Daml.Cucumber.Log
 import Daml.Cucumber.Utils
 import Data.Aeson
+import Data.Aeson.KeyMap qualified as Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Char8 as BS
 import Data.Map (Map)
@@ -20,6 +22,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import NeatInterpolation (text)
 import Reflex hiding (Request, Response)
@@ -118,60 +121,10 @@ setCwd :: FilePath -> Proc.CreateProcess -> Proc.CreateProcess
 setCwd fp cp = cp { Proc.cwd = Just fp }
 
 mkTestUri :: FilePath -> Text -> Text
-mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
+mkTestUri fp funcName = "daml://compiler?file=" <> (uriPath fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession
-  :: FilePath
-  -> FilePath
-  -> Bool
-  -> [Text]
-  -> Log IO (Either Text (Map Text ([Text], Text)))
-runTestLspSession cwd filepath verbose testNames = do
-  logDebug $ "Generated test file is " <> T.pack filepath
-  logDebug $ "Running lsp session in " <> T.pack cwd <> " ..."
-  cwd' <- liftIO $ canonicalizePath cwd
-  filepath' <- liftIO $ canonicalizePath filepath
-  pid <- liftIO getProcessID
-  let
-    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath' tname)) $ zip [1..] testNames
-    allReqs = ("Init", Request 0 (mkInitPayload pid)) : reqs
-
-  logHandler <- askLogHandler
-  testResults <- liftIO $ runHeadlessApp $ do
-    pb <- getPostBuild
-
-    rec
-      DamlIde currentResults currentResponses failed <- damlIde logHandler cwd' verbose sendReq
-
-      let
-        getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
-        getNextRequest rs responses = fmap snd $ safeHead $ filter (not . filterFunc) rs
-          where
-            filterFunc r = any (flip shouldBeRemoved r) responses
-
-        nextReq = getNextRequest allReqs <$> currentResponses
-
-        sendReq = fmapMaybe id $ leftmost [updated nextReq, current nextReq <@ pb]
-
-        shouldBeRemoved :: Response -> (Text, Request) -> Bool
-        shouldBeRemoved Init ("Init", _) = True
-        shouldBeRemoved (Response resId _) (_, Request reqId _) = resId == reqId
-        shouldBeRemoved _ _ = False
-
-    let
-      bounce :: Reflex t => (a -> Bool) -> Event t a -> Event t a
-      bounce f ev =
-        flip fmapMaybe ev $ \a -> case f a of
-          True -> Just a
-          False -> Nothing
-
-      newResults = updated $ Set.toList <$> currentResults
-
-    pure $ leftmost [ fmap Right $ bounce ((== length reqs) . length) $ newResults
-                    , fmap (Left . ("Daml doesn't compile (are you missing a Default instance for your context type?):\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n" . catMaybes . fmap (getCompileError . testResponseResult)) <$> newResults
-                    , Left <$> failed
-                    ]
-  pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
+uriPath :: String -> Text
+uriPath = T.replace "/" "%2F" . T.pack
 
 tShow :: Show a => a -> Text
 tShow = T.pack . show
@@ -217,6 +170,8 @@ data Response
   | Notification (RPC Value)
   | Response Integer (RPC Value)
   deriving (Eq, Show)
+
+makePrisms ''Response
 
 instance FromJSON Response where
   parseJSON = withObject "Response" $ \o -> do
@@ -264,11 +219,12 @@ damlIde logHandler cwd verbose rpcEvent = do
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
     logDebug' = flip runLoggingT logHandler . logDebug . T.decodeUtf8
+    logWarning' = flip runLoggingT logHandler . logWarning . T.decodeUtf8
 
   process <- createProcess damlProc (ProcessConfig sendPipe never)
   when verbose $ do
     performEvent_ $ ffor (_process_stdout process) $ liftIO . logDebug'
-    performEvent_ $ ffor (_process_stderr process) $ liftIO . logDebug'
+    performEvent_ $ ffor (_process_stderr process) $ liftIO . logWarning'
 
   let
     errorOutput = T.decodeUtf8 <$> _process_stderr process
@@ -280,6 +236,7 @@ damlIde logHandler cwd verbose rpcEvent = do
     buffer <- foldDyn ($) "" $ flip (<>) <$> stdout
 
     let dResponses = fst . parseBuffer <$> buffer
+
 
   pure $ DamlIde
     { damlIde_testResponses = Set.fromList . catMaybes . fmap (getTestResponse <=< getRPC) <$> dResponses
@@ -343,8 +300,8 @@ bsSafeLast bs
   | BS.null bs = Nothing
   | otherwise = Just $ BS.last bs
 
-mkDidOpenUri :: Text -> RPC Text
-mkDidOpenUri uri =
+mkDidOpenUri :: Text -> Text -> RPC Text
+mkDidOpenUri fileContents uri =
   RPC "textDocument/didOpen" params
   where
     params =
@@ -354,7 +311,7 @@ mkDidOpenUri uri =
             "uri": "$uri",
             "languageId": "",
             "version": 0,
-            "text": ""
+            "text": "$fileContents"
           }
         }
       |]
@@ -383,3 +340,72 @@ mkInitPayload pid =
         }
       |]
     pidStr = tShow pid
+
+runTestLspSession
+  :: FilePath
+  -> FilePath
+  -> Bool
+  -> [Text]
+  -> Log IO (Either Text (Map Text ([Text], Text)))
+runTestLspSession cwd filepath verbose testNames = do
+  logDebug $ "Generated test file is " <> T.pack filepath
+  logDebug $ "Running lsp session in " <> T.pack cwd <> " ..."
+  cwd' <- liftIO $ canonicalizePath cwd
+  filepath' <- liftIO $ canonicalizePath filepath
+  generatedFile <- liftIO $ T.intercalate "\\n" .  T.lines . T.replace "\"" "\\\"" . T.replace "\\" "\\\\" <$> T.readFile filepath'
+  pid <- liftIO getProcessID
+  let
+    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri "" $ mkTestUri filepath' tname)) $ zip [2..] testNames
+    allReqs = ("Init", Request 0 (mkInitPayload pid)) : ("Compile", Request 1 (mkDidOpenUri generatedFile $ "file://" <> ("daml/Generated.daml"))) : reqs
+
+  logHandler <- askLogHandler
+  testResults <- liftIO $ runHeadlessApp $ do
+    pb <- getPostBuild
+
+    rec
+      DamlIde currentResults currentResponses failed <- damlIde logHandler cwd' verbose sendReq
+
+      let
+        getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
+        getNextRequest rs responses = fmap snd $ safeHead $ filter (not . filterFunc) rs
+          where
+            filterFunc r = any (flip shouldBeRemoved r) responses
+
+        nextReq = getNextRequest allReqs <$> currentResponses
+
+        sendReq = fmapMaybe id $ leftmost [updated nextReq, current nextReq <@ pb]
+
+        shouldBeRemoved :: Response -> (Text, Request) -> Bool
+        shouldBeRemoved Init ("Init", _) = True
+        shouldBeRemoved (Response resId _) (_, Request reqId _) = resId == reqId
+        shouldBeRemoved _ _ = False
+
+    let
+      bounce :: Reflex t => (a -> Bool) -> Event t a -> Event t a
+      bounce f ev =
+        flip fmapMaybe ev $ \a -> case f a of
+          True -> Just a
+          False -> Nothing
+
+      newResults = updated $ Set.toList <$> currentResults
+
+      responses = fmap (fmapMaybe (preview _Notification)) $ updated currentResponses
+      publishDiagnostics = fmap (fmap rpcParams . filter ((== "textDocument/publishDiagnostics") . rpcMethod)) responses
+      errors = ffor publishDiagnostics $ \ds -> fforMaybe ds $ \case
+        (Object d) -> Aeson.lookup "diagnostics" d >>= (\(Object diag) -> Aeson.lookup "message" diag) >>= \(String msg) -> if "error:" `T.isInfixOf` msg then pure msg else Nothing
+
+
+    performEvent_ $ ffor (responses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+    performEvent_ $ ffor (updated currentResponses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+    performEvent_ $ ffor (publishDiagnostics) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+    performEvent_ $ ffor (errors) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+
+    pure $ leftmost
+      [ fmap Right $ bounce ((== length reqs) . length) $ newResults
+      , fmap (Left . ("Daml doesn't compile:\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n" . catMaybes . fmap (getCompileError . testResponseResult)) <$> newResults
+      , fmap (Left . ("Daml doesn't compile:\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n") <$> errors
+      , Left <$> failed
+      ]
+  pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
+
+
