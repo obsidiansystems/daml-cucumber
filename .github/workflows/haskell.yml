@@ -28,6 +28,9 @@ jobs:
           ${{ runner.os }}-${{ matrix.ghc }}-build-
           ${{ runner.os }}-${{ matrix.ghc }}-
           ${{ runner.os }}
+    - name: Install daml sdk
+      run:
+        curl -sSL https://get.daml.com/ | sh
     - name: Install dependencies
       run: |
         cabal update
