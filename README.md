@@ -53,10 +53,10 @@ instance Default Ctx where
 givenAParty: Cucumber Ctx ()
 givenAParty = do
   p <- liftScript $ allocateParty "alice"
-  set $ Ctx with party1 = p
+  put $ Ctx with party1 = Some p
 
 -- When the party creates contract X
-whenThePartyCreatesContact : Cucumber Ctx ()
+whenThePartyCreatesContact : Cucumber Ctx (ContractId X)
 whenThePartyCreatesContact = do
   malice <- gets party1
   case malice of
@@ -69,7 +69,7 @@ thenContractIsCreated = do
   malice <- gets party1
   case malice of
     Some alice -> do
-      contracts <- query @X alice
+      contracts <- liftScript $ query @X alice
       assertMsg "Must have exactly one contract" $ Prelude.length contracts == 1
     _ -> error "Missing party1"
 
@@ -112,7 +112,7 @@ daml-cucumber
   --generate-only
 ```
 
-This will created a file called `Generated.daml` that contains a function for each scenario in your feature files:
+This will create a file called `Generated.daml` that contains a function for each scenario in your feature files:
 
 ```haskell
 -- | Scenario: a contract can be created
