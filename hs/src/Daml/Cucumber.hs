@@ -100,6 +100,7 @@ start opts = do
         else watchDirectoryTree conf (takeDirectory f <$ pb) $ \e -> takeFileName (FS.eventPath e) == takeFileName f
     conf = FS.defaultConfig
         { FS.confWatchMode =
+            -- On macOS, use the polling backend due to https://github.com/luite/hfsevents/issues/13
             if Sys.os == "darwin"
               then FS.WatchModePoll 200000
               else FS.WatchModeOS
