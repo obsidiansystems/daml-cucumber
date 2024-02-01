@@ -41,6 +41,7 @@ import System.IO
 import Text.Casing
 import Text.Parsec.Error qualified as Parsec
 import Text.Parsec.Pos qualified as Parsec
+import Text.Printf
 
 -- | daml-cucumber configuration
 data Opts = Opts
@@ -188,6 +189,7 @@ runTestSuite opts = do
       case mscript of
         Left err -> logExitFailure err
         Right (Test result definedSteps missingSteps features) -> do
+          logInfo "Running tests..."
           let
             testFile = (damlLocation </> damlYaml_source damlyaml </> "Generated.daml")
             shouldRunTests = (allowMissing || Set.null missingSteps) && not generateOnly
@@ -205,7 +207,7 @@ runTestSuite opts = do
                     if allowMissing
                       then logInfo msg
                       else logWarning msg
-                  when (not success) $ logExitFailure "Test failures reported"
+                  when (not success) $ liftIO exitFailure
             False -> do
               if generateOnly
                 then do
@@ -219,7 +221,48 @@ evaluateResults :: MonadIO m => Set Step -> Map Text ([Text], Text) -> [Feature]
 evaluateResults definedSteps testResults features = do
   let r = report definedSteps testResults features
   logNotice $ renderReport r
-  pure $ all (==StepSucceeded) $ fmap snd $ snd $ foldMap (first $ const ()) $ snd $ foldMap (first $ const ()) r
+  let success = all (==StepSucceeded) $ fmap snd $ squash $ squash r
+  logNotice $ reportSummary r
+  pure success
+
+reportSummary :: Report -> Text
+reportSummary r =
+  let failures = filterReport (\case StepSucceeded -> False; _ -> True) r
+      totalFeatures = length r
+      numFailingFeatures = length failures
+      scenarios = squash r
+      failingScenarios = squash failures
+      numFailingScenarios = length failingScenarios
+      totalScenarios = length scenarios
+      steps = squash scenarios
+      failingSteps = squash failingScenarios
+      numFailingSteps = length failingSteps
+      totalSteps = length steps
+      numberWidth = length (show totalSteps)
+      show' = printf $ "%" <> show numberWidth <> "d"
+      summaryLine prefix total fails =
+        prefix <> show' (total - fails) <> " of " <> show' total <> " passed"
+  in T.pack $ unlines
+      [ if numFailingFeatures == 0 then "Tests Passed \9989" else "Tests Failed \10060"
+      , "  " <> summaryLine "Features:  " totalFeatures numFailingFeatures
+      , "  " <> summaryLine "Scenarios: " totalScenarios numFailingScenarios
+      , "  " <> summaryLine "Steps:     " totalSteps numFailingSteps
+      ]
+
+squash :: [(a, [b])] -> [b]
+squash = snd . foldMap (first $ const ())
+
+filterReport :: (StepReport -> Bool) -> Report -> Report
+filterReport f inputList =
+    [ (a, bsWithMatchingD)
+    | (a, bs) <- inputList
+    , let bsWithMatchingD =
+            [ (b, csWithMatchingD)
+            | (b, cs) <- bs
+            , let csWithMatchingD = [(c, d) | (c, d) <- cs, f d]
+            , not (null csWithMatchingD)
+            ]
+    , not (null bsWithMatchingD)]
 
 data StepReport = StepSucceeded | StepFailed Text | StepDidNotRun
   deriving (Eq)
@@ -269,7 +312,7 @@ renderReport r = T.unlines $ fmap (T.unlines . fmap T.unlines) $
     renderResult = (" => " <>) . \case
       StepSucceeded -> successColor "OK"
       StepFailed err -> errorColor $ "FAILED\n" <> renderStrict (formatError err)
-      StepDidNotRun -> warningColor "DID NOT RUN"
+      StepDidNotRun -> warningColor "SKIPPED"
     errorColor = wrapSGRCode [SetColor Foreground Dull Red]
     warningColor = wrapSGRCode [SetColor Foreground Vivid Yellow]
     successColor = wrapSGRCode [SetColor Foreground Vivid Green]
