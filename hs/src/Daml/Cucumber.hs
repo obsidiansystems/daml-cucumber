@@ -284,6 +284,7 @@ formatError = layoutSmart
   . reflow
   . T.unwords
   . T.words
+  . T.replace ":" ": "
 
 collateStepResults :: [Text] -> [(Text, Bool)]
 collateStepResults (name:"pass": rest) = (name, True) : collateStepResults rest
