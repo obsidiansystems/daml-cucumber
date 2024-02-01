@@ -1,0 +1,105 @@
+module Test where
+
+import Cucumber
+import DA.Action.State.Class
+import Daml.Script
+import Main qualified as M
+
+data Ctx = Ctx with
+  alice : Optional Party
+  bob : Optional Party
+  issuer : Optional Party
+  knownAssetId : Optional M.AssetId
+
+instance Default Ctx where
+  def = Ctx None None None None
+
+-- Given an issuer party
+given_an_issuer : Cucumber Ctx ()
+given_an_issuer = do
+  p <- liftScript $ allocateParty "issuer"
+  modify $ \ctx -> ctx { issuer = Some p }
+
+-- When the issuer creates an asset with an empty name
+asset_empty_name : Cucumber Ctx ()
+asset_empty_name = do
+  Some p <- gets issuer
+  liftScript $ submitMustFail p $ createCmd M.Asset with
+    issuer = p
+    owner = p
+    name = ""
+
+-- Then the asset cannot be issued
+no_asset_issued : Cucumber Ctx ()
+no_asset_issued = do
+  Some p <- gets issuer
+  [] <- liftScript $ query @M.Asset p
+  pure ()
+
+-- Given an asset
+given_an_asset : Cucumber Ctx (ContractId M.Asset)
+given_an_asset = do
+  given_an_issuer
+  given_a_second_party
+  issuer_creates_asset
+
+-- When the issuer creates an asset with the issuer as the owner
+issuer_creates_asset_for_self : Cucumber Ctx (ContractId M.Asset)
+issuer_creates_asset_for_self = do
+  Some p <- gets issuer
+  assetId <- liftScript $ submit p $ createCmd M.Asset with
+    issuer = p
+    owner = p
+    name = "TV"
+  modify $ \ctx -> ctx { knownAssetId = Some assetId }
+  pure assetId
+
+-- When the issuer creates an asset with the second party as the owner
+issuer_creates_asset : Cucumber Ctx (ContractId M.Asset)
+issuer_creates_asset = do
+  Some p <- gets issuer
+  Some owner <- gets alice
+  assetId <- liftScript $ submit p $ createCmd M.Asset with
+    issuer = p
+    name = "VCR"
+    owner
+  modify $ \ctx -> ctx { knownAssetId = Some assetId }
+  pure assetId
+
+-- When the owner of the asset tries to give it to themself
+owner_give_to_self : Cucumber Ctx ()
+owner_give_to_self = do
+  Some owner <- gets alice
+  Some assetId <- gets knownAssetId
+  liftScript $ submitMustFail owner $
+    exerciseCmd assetId M.Give with newOwner = owner
+
+-- Then an asset is created owned by the issuer
+asset_owner_is_issuer : Cucumber Ctx ()
+asset_owner_is_issuer = do
+  Some issuer <- gets issuer
+  [asset] <- liftScript $ query @M.Asset issuer
+  assertMsg "Expected asset owner to be the issuer" $
+    asset._2.owner == issuer
+
+-- Then an asset is created owned by the second party
+asset_owner_is_alice : Cucumber Ctx ()
+asset_owner_is_alice = do
+  Some alice <- gets alice
+  [asset] <- liftScript $ query @M.Asset alice
+  assertMsg "Expected asset owner to be the second party" $
+    asset._2.owner == alice
+
+-- Then the asset's id does not change
+asset_id_unchanged : Cucumber Ctx ()
+asset_id_unchanged = do
+  Some assetId <- gets knownAssetId
+  Some p <- gets issuer
+  [asset] <- liftScript $ query @M.Asset p
+  assertMsg "Asset has changed unexpectedly" $ asset._1 == assetId
+
+-- And a second party
+given_a_second_party : Cucumber Ctx ()
+given_a_second_party = do
+  p <- liftScript $ allocateParty "alice"
+  modify $ \ctx -> ctx { alice = Some p }
