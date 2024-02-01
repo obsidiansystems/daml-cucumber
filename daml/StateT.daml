@@ -16,7 +16,7 @@ data StateT s m a = StateT
 
 instance (Applicative m, Action m) => Functor (StateT s m) where
  fmap f (StateT runState) = StateT $ (\s -> do
-   (a, s)<- runState s
+   (a, s) <- runState s
    pure (f a, s))
 
 instance (Applicative m, Action m) => Applicative (StateT s m) where
@@ -31,6 +31,12 @@ instance (Applicative m, Action m) => Action (StateT s m) where
   m >>= k  = StateT $ \ s -> do
     (a, s') <- runStateT m s
     runStateT (k a) s'
+
+instance ActionFail m => ActionFail (StateT s m) where
+  fail m = StateT $ \s -> fail m >> pure (undefined, s)
+
+instance CanAssert m => CanAssert (StateT s m) where
+  assertFail m = StateT $ \s -> assertFail m >> pure (undefined, s)
 
 state
   : (Action m)
