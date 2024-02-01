@@ -1,5 +1,5 @@
 # Revision history for daml-cucumber
 
-## 0.1.0.0 -- YYYY-mm-dd
+## 1.0.0.0
 
-* First version. Released on an unsuspecting world.
+* Generate and run a daml test suite matching feature specifications written in the cucumber gherkin language

@@ -1,7 +1,9 @@
 module Main where
 
 import Daml.Cucumber
+import Data.Version
 import Options.Applicative
+import Paths_daml_cucumber (version)
 import Options.Applicative.NonEmpty
 
 opts :: Parser Opts
@@ -35,6 +37,6 @@ main = do
   options <- execParser $ info (opts <**> helper) $ mconcat
     [ fullDesc
     , progDesc "Run cucumber tests in daml script"
-    , header "daml-cucumber cli tool"
+    , header $ "Welcome to daml-cucumber " <> showVersion version <> " by Obsidian Systems"
     ]
   start options
