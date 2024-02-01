@@ -348,7 +348,6 @@ writeDamlScript path state = liftIO $ do
   T.hPutStrLn handle $ "module " <> moduleName <> " where"
 
   T.hPutStrLn handle "import Cucumber"
-  T.hPutStrLn handle "import StateT"
   T.hPutStrLn handle "import Daml.Script"
 
   for_ (Set.toList $ damlImports state) $ \theImport -> do
