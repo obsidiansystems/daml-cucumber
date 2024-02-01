@@ -1,4 +1,6 @@
 # daml-cucumber 🥒
+[![Haskell Programming Language](https://img.shields.io/badge/language-Haskell-blue.svg)](http://www.haskell.org)
+[![BSD3 License](http://img.shields.io/badge/license-BSD3-brightgreen.svg)](https://github.com/obsidiansystems/obelisk/blob/master/LICENSE) [![Built with Nix](https://img.shields.io/static/v1?logo=nixos&logoColor=white&label=&message=Built%20with%20Nix&color=41439a)](https://nixos.org)
 
 [Behavior-driven-development](https://cucumber.io/docs/bdd/) for Daml script using Cucumber's [Gherkin](https://cucumber.io/docs/gherkin/reference/) specification language.
 
@@ -185,3 +187,7 @@ to push all the containers you can run
 ```bash
 $(nix-build -A pushScript)/bin/docker-push-generated
 ```
+
+***
+
+Built by [Obsidian Systems](https://obsidian.systems).
