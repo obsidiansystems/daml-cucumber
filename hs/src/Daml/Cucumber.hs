@@ -4,6 +4,7 @@ module Daml.Cucumber
   ) where
 
 import Control.Arrow (first)
+import Control.Exception (catch, SomeException(..))
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Log
@@ -32,13 +33,17 @@ import Prettyprinter
 import Prettyprinter.Render.Text
 import Prettyprinter.Util (reflow)
 import Reflex
+import Reflex.FSNotify
+import Reflex.Host.Headless
 import System.Console.ANSI
 import System.Directory qualified as Dir
 import System.Directory.Contents qualified as Dir
 import System.Directory.Contents.Zipper qualified as Z
 import System.Exit
+import System.FSNotify qualified as FS
 import System.FilePath hiding (hasExtension)
 import System.IO
+import System.Info qualified as Sys
 import Text.Casing
 import Text.Parsec.Error qualified as Parsec
 import Text.Parsec.Pos qualified as Parsec
@@ -52,16 +57,54 @@ data Opts = Opts
   , _opts_generateOnly :: Bool
   , _opts_verbose :: Bool
   , _opts_logLsp :: Bool
+  , _opts_watch :: Bool
   }
   deriving (Show)
 
 start :: Opts -> IO ()
 start opts = do
   withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
-    runLoggingT (runTestSuite opts) $ \msg -> case msgSeverity msg of
+    runLoggingT runner $ \msg -> case msgSeverity msg of
       Debug | _opts_verbose opts || _opts_logLsp opts -> stdoutHandler (renderLogMessage msg)
       Debug -> pure ()
       _ -> stdoutHandler (renderLogMessage msg)
+  where
+    runner = do
+      case _opts_watch opts of
+        True -> do
+          logger <- askLogHandler
+          liftIO $ runHeadlessApp $ do
+            pb <- getPostBuild
+            damlFiles <- watchDirectoryTree conf (_opts_damlSource opts <$ pb) $ \e ->
+              (takeExtension (FS.eventPath e) == ".daml") && (takeFileName (FS.eventPath e) /= "Generated.daml")
+            featureFiles <- mapM watchFeature (toList $ _opts_featureSource opts)
+            let anyChange = mergeWith const $ damlFiles : featureFiles
+            rec
+              pb' <- delay 0.1 pb
+              out <- performEvent $ ffor go $ \_ ->
+                liftIO $ catch (runLoggingT (runTestSuite opts) logger) $ \SomeException {} -> return ()
+              isReady <- holdDyn False $ True <$ out
+              waitingForReload <- holdDyn False $ fmap fst $ attachPromptlyDyn (not <$> isReady) anyChange
+              go <- debounce 0.25 $ leftmost
+                [ (()<$) $ ffilter fst $ attachPromptlyDyn isReady anyChange
+                , (()<$) $ ffilter id $ updated waitingForReload
+                , pb'
+                ]
+            pure never
+        False -> runTestSuite opts
+    watchFeature f = do
+      pb <- getPostBuild
+      isDir <- liftIO $ Dir.doesDirectoryExist f
+      if isDir
+        then watchDirectoryTree conf (f <$ pb) $ \e -> takeExtension (FS.eventPath e) == ".feature"
+        else watchDirectoryTree conf (takeDirectory f <$ pb) $ \e -> takeFileName (FS.eventPath e) == takeFileName f
+    conf = FS.defaultConfig
+        { FS.confWatchMode =
+            if Sys.os == "darwin"
+              then FS.WatchModePoll 200000
+              else FS.WatchModeOS
+        }
+
 
 -- | Check whether a filepath has a particular extension (including ".")
 hasExtension :: String -> FilePath -> Bool
@@ -192,7 +235,7 @@ logExitFailure reason = do
 
 runTestSuite :: Opts -> Log IO ()
 runTestSuite opts = do
-  let Opts featureLocation damlLocation allowMissing generateOnly _ logLsp = opts
+  let Opts featureLocation damlLocation allowMissing generateOnly _ logLsp _ = opts
   getProjectFiles damlLocation featureLocation >>= \case
     Left err -> logExitFailure $ T.pack err
     Right f@(Files featureFiles damlFiles damlyaml) -> do

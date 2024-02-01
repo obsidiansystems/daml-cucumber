@@ -31,6 +31,9 @@ opts = Opts
       ( long "log-lsp"
       <> help "Show intermediate output from LSP test run"
       <> internal )
+  <*> flag False True
+      ( long "watch"
+      <> help "Re-run when files are changed" )
 
 main :: IO ()
 main = do
