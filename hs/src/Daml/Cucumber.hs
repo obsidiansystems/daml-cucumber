@@ -167,18 +167,24 @@ data Test = Test
   }
 
 getUsedContextTypes :: DamlFile -> Set (FilePath, Text)
-getUsedContextTypes (DamlFile fp definitions) =
-  foldr getContextTypeUse mempty definitions
+getUsedContextTypes (DamlFile fp typesyns definitions) =
+  foldr getContextTypeUse mempty (fmap getDefinitionType definitions <> fmap getTypeSynonymType typesyns)
   where
-    getContextTypeUse (Definition _ _ ts) b = case ts of
+    getContextTypeUse t b = case t of
       (Reg (Type "Cucumber" (context:_))) -> Set.insert (fp, context) b
       _ -> b
+
+getDefinitionType :: Definition -> TypeSig
+getDefinitionType (Definition _ _ ts) = ts
+
+getTypeSynonymType :: TypeSynonym -> TypeSig
+getTypeSynonymType (TypeSynonym _ ts) = ts
 
 getContextTypeDefinitionFile :: Text -> [DamlFile] -> Maybe FilePath
 getContextTypeDefinitionFile typeName files =
   safeHead $ fmap damlFilePath $ filter filterFunc files
   where
-    filterFunc (DamlFile _ defs) = any isDefForType defs
+    filterFunc (DamlFile _ typesyns defs) = any isDefForType defs
 
     isDefForType :: Definition -> Bool
     isDefForType (Definition name _ _) | typeName == name = True

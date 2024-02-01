@@ -10,6 +10,7 @@ module Daml.Cucumber.Daml.Parser
   , parseAll
   ) where
 
+import Control.Applicative
 import Control.Monad.State
 import Data.Text (Text)
 import qualified Data.Text.IO as T
@@ -19,7 +20,7 @@ import Daml.Cucumber.Daml.Tokenizer
 newtype Parser a = Parser
   { unParser :: StateT [Token] Maybe a
   }
-  deriving (Functor, Applicative, Monad, MonadFail, MonadState [Token])
+  deriving (Functor, Applicative, Monad, MonadFail, MonadState [Token], Alternative)
 
 runParser :: [Token] -> Parser a -> Maybe (a, [Token])
 runParser tokens (Parser action) = runStateT action tokens

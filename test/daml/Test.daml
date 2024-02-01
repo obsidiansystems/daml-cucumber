@@ -67,13 +67,15 @@ instance Show AnimalType where
     Bird -> "bird"
     NotToaster -> "toaster"
 
+type Test a = Cucumber BasicContext a
+
 -- Given there is a animal and a type
-a: Cucumber BasicContext ()
+a: Test ()
 a = do
   pure ()
 
 -- Then the Dog is pretty cool I guess
-b: Cucumber BasicContext ()
+b: Test ()
 b = do
   pure ()
 
