@@ -28,6 +28,9 @@ import Data.Text qualified as T
 import Data.Text (Text)
 import Data.Text.IO qualified as T
 import Data.Traversable
+import Prettyprinter
+import Prettyprinter.Render.Text
+import Prettyprinter.Util (reflow)
 import Reflex
 import System.Console.ANSI
 import System.Directory qualified as Dir
@@ -265,11 +268,22 @@ renderReport r = T.unlines $ fmap (T.unlines . fmap T.unlines) $
   where
     renderResult = (" => " <>) . \case
       StepSucceeded -> successColor "OK"
-      StepFailed err -> errorColor $ "FAILED\n      " <> err
+      StepFailed err -> errorColor $ "FAILED\n" <> renderStrict (formatError err)
       StepDidNotRun -> warningColor "DID NOT RUN"
     errorColor = wrapSGRCode [SetColor Foreground Dull Red]
     warningColor = wrapSGRCode [SetColor Foreground Vivid Yellow]
     successColor = wrapSGRCode [SetColor Foreground Vivid Green]
+
+-- | Remove extra internal whitespace, indent, and limit width
+formatError :: Text -> SimpleDocStream ann
+formatError = layoutSmart
+  (defaultLayoutOptions
+    { layoutPageWidth = AvailablePerLine 80 0.75
+    })
+  . indent 6
+  . reflow
+  . T.unwords
+  . T.words
 
 collateStepResults :: [Text] -> [(Text, Bool)]
 collateStepResults (name:"pass": rest) = (name, True) : collateStepResults rest
