@@ -20,3 +20,10 @@ Feature: Asset
     Given an asset
     When the owner of the asset tries to give it to themself
     Then the asset's id does not change
+
+  # Scenario: An asset can be transferred
+  #   Given an asset
+  #   Given a third party
+  #   When the owner of the asset gives it to the third party
+  #   Then the third party has the asset
+  #   Then the previous owner does not
