@@ -6,9 +6,9 @@
 
 This repository includes both a Daml library and an executable that reads gherkin .feature files and invokes your Daml test script with the feature as input.
 
-## Daml library
+## How to use this library
 
-### Adding daml-cucumber to your project
+### Add daml-cucumber to your project
 The daml-cucumber daml library is found in the `./daml` folder of this project. You can build and import `daml-cucumber-<version>.dar`, into your project as one of the [`data-dependencies` in your daml.yaml file](https://docs.daml.com/tools/assistant-build.html#add-a-package-to-a-multi-package-configuration).
 
 You can build the daml-cucumber daml library with the following commands:
@@ -19,7 +19,7 @@ cd daml
 daml build
 ```
 
-### Implementing tests
+### Implement tests for each cucumber step
 
 Your Daml test suite should import [`Cucumber`](./daml/Cucumber.daml), which provides the function `liftScript` and the `Cucumber` [Action](https://docs.daml.com/daml/intro/5_Restrictions.html#actions-and-do-blocks). These can be used to define cucumber scenario implementations. For example, given the following template and feature file:
 
@@ -77,11 +77,11 @@ thenContractIsCreated = do
 
 A full project example (using the daml skeleton app) is available in the [example folder](./example).
 
-### Scenario state
+### Sharing scenario state
 
 Each scenario has a state or context that is shared by all of the steps that implement that scenario. You can use the functions defined in [DA.Action.State.Class](https://docs.daml.com/daml/stdlib/DA-Action-State-Class.html) to `get`, `put`, and `modify` the scenario state.
 
-## The daml-cucumber executable
+## Running scenarios with daml-cucumber
 
 Launch daml-cucumber to run tests like so:
 
@@ -149,7 +149,7 @@ cabal repl exe:daml-cucumber
 :main --source ../test --features ../test/features.feature
 ```
 
-### Nix Binary Cache
+### Setting up the Nix Binary Cache
 
 To speed up the build process, you can fetch pre-built artifacts from our binary cache.
 
@@ -169,7 +169,7 @@ To speed up the build process, you can fetch pre-built artifacts from our binary
         binary-caches-parallel-connections = 40
         ```
 
-### Docker Containers
+### Building Docker Containers
 
 To build the docker containers you can run
 ```bash
