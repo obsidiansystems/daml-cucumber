@@ -24,7 +24,7 @@ import StateT
 newtype Cucumber s a = Cucumber
   { unCucumber : StateT s Script a
   }
- deriving (Functor, Applicative, Action, ActionState s)
+ deriving (Functor, Applicative, Action, ActionState s, ActionFail, CanAssert)
 
 instance LiftScript (Cucumber s) where
   liftScript action = Cucumber (liftScript action)
