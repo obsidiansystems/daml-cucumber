@@ -3,7 +3,8 @@ name:            daml-cucumber
 version:         1.0.0.0
 synopsis:        Cucumber testing with daml script
 description:
-  Parse cucumber tests and pass them to a daml script for execution
+  Parse cucumber gherkin tests, associate them with daml script tests, and run
+  them.
 
 homepage:        https://github.com/obsidiansystems/daml-cucumber
 license:         BSD-3-Clause
