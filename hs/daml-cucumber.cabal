@@ -1,6 +1,6 @@
 cabal-version:   3.0
 name:            daml-cucumber
-version:         0.1.0.0
+version:         1.0.0.0
 synopsis:        Cucumber testing with daml script
 description:
   Parse cucumber tests and pass them to a daml script for execution
@@ -82,6 +82,7 @@ executable daml-cucumber
     , base
     , daml-cucumber
     , optparse-applicative  >=0.16.1 && <0.17
+  other-modules: Paths_daml_cucumber
 
   ghc-options:      -O -threaded
   hs-source-dirs:   src-exe

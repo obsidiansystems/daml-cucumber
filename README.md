@@ -1,14 +1,25 @@
 # daml-cucumber 🥒
+[![Haskell Programming Language](https://img.shields.io/badge/language-Haskell-blue.svg)](http://www.haskell.org)
+[![BSD3 License](http://img.shields.io/badge/license-BSD3-brightgreen.svg)](https://github.com/obsidiansystems/obelisk/blob/master/LICENSE) [![Built with Nix](https://img.shields.io/static/v1?logo=nixos&logoColor=white&label=&message=Built%20with%20Nix&color=41439a)](https://nixos.org)
 
 [Behavior-driven-development](https://cucumber.io/docs/bdd/) for Daml script using Cucumber's [Gherkin](https://cucumber.io/docs/gherkin/reference/) specification language.
 
-## Getting Started
-
 This repository includes both a Daml library and an executable that reads gherkin .feature files and invokes your Daml test script with the feature as input.
 
-### Daml library
+## Daml library
 
+### Adding daml-cucumber to your project
 The daml-cucumber daml library is found in the `./daml` folder of this project. You can build and import `daml-cucumber-<version>.dar`, into your project as one of the [`data-dependencies` in your daml.yaml file](https://docs.daml.com/tools/assistant-build.html#add-a-package-to-a-multi-package-configuration).
+
+You can build the daml-cucumber daml library with the following commands:
+
+```bash
+nix-shell
+cd daml
+daml build
+```
+
+### Implementing tests
 
 Your Daml test suite should import [`Cucumber`](./daml/Cucumber.daml), which provides the function `liftScript` and the `Cucumber` [Action](https://docs.daml.com/daml/intro/5_Restrictions.html#actions-and-do-blocks). These can be used to define cucumber scenario implementations. For example, given the following template and feature file:
 
@@ -64,7 +75,11 @@ thenContractIsCreated = do
 
 ```
 
-### daml-cucumber executable
+### Scenario state
+
+Each scenario has a state or context that is shared by all of the steps that implement that scenario. You can use the functions defined in [DA.Action.State.Class](https://docs.daml.com/daml/stdlib/DA-Action-State-Class.html) to `get`, `put`, and `modify` the scenario state.
+
+## The daml-cucumber executable
 
 Launch daml-cucumber to run tests like so:
 
@@ -86,7 +101,7 @@ Feature: Example
 
 daml-cucumber will also notify you of missing steps, if the `--allow-missing` flag is not set, missing steps is an error.
 
-#### Inspecting test results with VSCode
+### Inspecting test results with VSCode
 
 daml-cucumber generates a daml file that can be opened in VSCode or evaluated with `daml test`. It is generated whenever daml-cucumber runs, but you can also generate it at any time with the following command:
 
@@ -172,3 +187,7 @@ to push all the containers you can run
 ```bash
 $(nix-build -A pushScript)/bin/docker-push-generated
 ```
+
+***
+
+Built by [Obsidian Systems](https://obsidian.systems).
