@@ -29,15 +29,28 @@ let
         '';
       };
       damlTest = pkgs.stdenvNoCC.mkDerivation {
-        name = "daml-cucumber-test";
+        name = "daml-cucumber-test-${version}";
         src = pkgs.lib.cleanSource ./.;
         buildInputs = [ damlSdk.jdk damlSdk.sdk ];
         buildPhase = ''
-          cp ${damlLib}/dist.dar test/dist.dar
           substituteInPlace test/daml.yaml \
             --replace "2.6.5" ${version}
           ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --source ./test --features ./test/features.feature
           cd test && ${damlSdk.sdk}/bin/daml test > test-result
+        '';
+        installPhase = ''
+          cat test-result > $out
+        '';
+      };
+      damlExample = pkgs.stdenvNoCC.mkDerivation {
+        name = "daml-cucumber-example-${version}";
+        src = pkgs.lib.cleanSource ./.;
+        buildInputs = [ damlSdk.jdk damlSdk.sdk ];
+        buildPhase = ''
+          substituteInPlace example/daml.yaml \
+            --replace "2.6.5" ${version}
+          ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --source ./example --features ./example
+          cd example && ${damlSdk.sdk}/bin/daml test > test-result
         '';
         installPhase = ''
           cat test-result > $out

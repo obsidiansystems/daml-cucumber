@@ -19,7 +19,7 @@ import Daml.Cucumber.Types
 import Daml.Cucumber.Utils
 import Data.Char
 import Data.Foldable
-import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty (NonEmpty(..))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -35,6 +35,7 @@ import Reflex
 import System.Console.ANSI
 import System.Directory qualified as Dir
 import System.Directory.Contents qualified as Dir
+import System.Directory.Contents.Zipper qualified as Z
 import System.Exit
 import System.FilePath hiding (hasExtension)
 import System.IO
@@ -52,12 +53,14 @@ data Opts = Opts
   , _opts_verbose :: Bool
   , _opts_logLsp :: Bool
   }
+  deriving (Show)
 
 start :: Opts -> IO ()
 start opts = do
   withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
     runLoggingT (runTestSuite opts) $ \msg -> case msgSeverity msg of
-      Debug | not (_opts_verbose opts) || not (_opts_logLsp opts) -> pure ()
+      Debug | _opts_verbose opts || _opts_logLsp opts -> stdoutHandler (renderLogMessage msg)
+      Debug -> pure ()
       _ -> stdoutHandler (renderLogMessage msg)
 
 -- | Check whether a filepath has a particular extension (including ".")
@@ -70,6 +73,18 @@ findFilesRecursive :: FilePath -> IO [FilePath]
 findFilesRecursive dir =
   maybe [] toList <$> Dir.buildDirTree dir
 
+findDamlSources :: FilePath -> IO [FilePath]
+findDamlSources dir = do
+  Dir.buildDirTree dir >>= \case
+    Nothing -> pure []
+    Just t ->
+      let z = case Z.downTo ".daml" $ Z.zipped t of
+            Nothing -> toList t
+            Just dotdaml -> case Z.remove dotdaml of
+              Nothing -> []
+              Just z' -> toList $ Z.unzipped z'
+      in pure $ filter (hasExtension ".daml") z
+
 data Files = Files
   { files_feature :: [FilePath]
   , files_daml :: [FilePath]
@@ -77,10 +92,9 @@ data Files = Files
   }
 
 -- | Retrieve .daml and .feature files
-getProjectFiles :: MonadIO m => FilePath -> NonEmpty FilePath -> m (Either String Files)
+getProjectFiles :: MonadIO m => FilePath -> NonEmpty FilePath -> Log m (Either String Files)
 getProjectFiles damlSource featureSources = do
-  damlFiles <- filter (hasExtension ".daml") <$>
-    liftIO (findFilesRecursive damlSource)
+  damlFiles <- liftIO (findDamlSources damlSource)
   featureFiles <- filter (hasExtension ".feature") . concat <$>
     mapM (liftIO . findFilesRecursive) featureSources
   let damlyaml = damlSource </> "daml.yaml"
@@ -205,9 +219,7 @@ runTestSuite opts = do
                   when (not $ Set.null missingSteps) $ do
                     let msg = T.pack $ unlines $
                           "Missing steps:" : map prettyPrintStep (Set.toList missingSteps)
-                    if allowMissing
-                      then logInfo msg
-                      else logWarning msg
+                    logWarning msg
                   when (not success) $ liftIO exitFailure
             False -> do
               if generateOnly

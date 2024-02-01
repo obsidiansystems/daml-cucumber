@@ -75,6 +75,8 @@ thenContractIsCreated = do
 
 ```
 
+A full project example (using the daml skeleton app) is available in the [example folder](./example).
+
 ### Scenario state
 
 Each scenario has a state or context that is shared by all of the steps that implement that scenario. You can use the functions defined in [DA.Action.State.Class](https://docs.daml.com/daml/stdlib/DA-Action-State-Class.html) to `get`, `put`, and `modify` the scenario state.
