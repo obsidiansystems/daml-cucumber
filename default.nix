@@ -47,7 +47,7 @@ let
         src = pkgs.lib.cleanSource ./.;
         buildInputs = [ damlSdk.jdk damlSdk.sdk ];
         buildPhase = ''
-          substituteInPlace test/daml.yaml \
+          substituteInPlace example/daml.yaml \
             --replace "2.6.5" ${version}
           ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --source ./example --features ./example
           cd example && ${damlSdk.sdk}/bin/daml test > test-result
