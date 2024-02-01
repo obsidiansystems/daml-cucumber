@@ -1,14 +1,15 @@
+{-# Language RankNTypes #-}
 module Daml.Cucumber.LSP
   ( runTestLspSession
   ) where
 
-import Daml.Cucumber.Utils
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Monad.Log
 import Daml.Cucumber.Log
+import Daml.Cucumber.Utils
 import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Char8 as BS
@@ -118,7 +119,12 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: MonadIO m => FilePath -> FilePath -> Bool -> [Text] -> Log m (Either Text (Map Text ([Text], Text)))
+runTestLspSession
+  :: FilePath
+  -> FilePath
+  -> Bool
+  -> [Text]
+  -> Log IO (Either Text (Map Text ([Text], Text)))
 runTestLspSession cwd filepath verbose testNames = do
   logDebug $ "Generated test file is " <> T.pack filepath
   logDebug $ "Running lsp session in " <> T.pack cwd <> " ..."
@@ -127,11 +133,12 @@ runTestLspSession cwd filepath verbose testNames = do
     reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
     allReqs = ("Init", Request 0 (mkInitPayload pid)) : reqs
 
+  logHandler <- askLogHandler
   testResults <- liftIO $ runHeadlessApp $ do
     pb <- getPostBuild
 
     rec
-      DamlIde currentResults currentResponses failed <- damlIde cwd verbose sendReq
+      DamlIde currentResults currentResponses failed <- damlIde logHandler cwd verbose sendReq
 
       let
         getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
@@ -234,16 +241,31 @@ data DamlIde t = DamlIde
   , damlIde_exit :: Event t Text
   }
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Bool -> Event t Request -> m (DamlIde t)
-damlIde cwd verbose rpcEvent = do
+damlIde
+  :: ( PostBuild t m
+     , MonadHold t m
+     , MonadFix m
+     , MonadIO m
+     , MonadIO (Performable m)
+     , PerformEvent t m
+     , TriggerEvent t m
+     , Reflex t
+     )
+  => Handler IO (WithSeverity Text)
+  -> FilePath
+  -> Bool
+  -> Event t Request
+  -> m (DamlIde t)
+damlIde logHandler cwd verbose rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
+    logDebug' = flip runLoggingT logHandler . logDebug . T.decodeUtf8
 
   process <- createProcess damlProc (ProcessConfig sendPipe never)
   when verbose $ do
-    performEvent_ $ ffor (_process_stdout process) $ liftIO . print
-    performEvent_ $ ffor (_process_stderr process) $ liftIO . print
+    performEvent_ $ ffor (_process_stdout process) $ liftIO . logDebug'
+    performEvent_ $ ffor (_process_stderr process) $ liftIO . logDebug'
 
   let
     errorOutput = T.decodeUtf8 <$> _process_stderr process

@@ -24,7 +24,11 @@ opts = Opts
   <*> flag False True
       ( long "verbose"
       <> short 'v'
-      <> help "Show intermediate output from LSP test run" )
+      <> help "Verbose output" )
+  <*> flag False True
+      ( long "log-lsp"
+      <> help "Show intermediate output from LSP test run"
+      <> internal )
 
 main :: IO ()
 main = do
