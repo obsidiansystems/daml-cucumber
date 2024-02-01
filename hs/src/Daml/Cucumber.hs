@@ -50,13 +50,14 @@ data Opts = Opts
   , _opts_allowMissing :: Bool
   , _opts_generateOnly :: Bool
   , _opts_verbose :: Bool
+  , _opts_logLsp :: Bool
   }
 
 start :: Opts -> IO ()
 start opts = do
   withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
     runLoggingT (runTestSuite opts) $ \msg -> case msgSeverity msg of
-      Debug | not (_opts_verbose opts) -> pure ()
+      Debug | not (_opts_verbose opts) || not (_opts_logLsp opts) -> pure ()
       _ -> stdoutHandler (renderLogMessage msg)
 
 -- | Check whether a filepath has a particular extension (including ".")
@@ -177,7 +178,7 @@ logExitFailure reason = do
 
 runTestSuite :: Opts -> Log IO ()
 runTestSuite opts = do
-  let Opts featureLocation damlLocation allowMissing generateOnly verbose = opts
+  let Opts featureLocation damlLocation allowMissing generateOnly _ logLsp = opts
   getProjectFiles damlLocation featureLocation >>= \case
     Left err -> logExitFailure $ T.pack err
     Right f@(Files featureFiles damlFiles damlyaml) -> do
@@ -196,7 +197,7 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              result' <- runTestLspSession damlLocation testFile verbose $ fmap damlFuncName $ damlFunctions result
+              result' <- runTestLspSession damlLocation testFile logLsp $ fmap damlFuncName $ damlFunctions result
               case result' of
                 Left err -> logExitFailure ("LSP session failed: " <> err)
                 Right testResults -> do
