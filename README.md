@@ -4,6 +4,12 @@
 
 [Behavior-driven-development](https://cucumber.io/docs/bdd/) for Daml script using Cucumber's [Gherkin](https://cucumber.io/docs/gherkin/reference/) specification language.
 
+
+
+https://github.com/obsidiansystems/daml-cucumber/assets/7432518/f13cd205-8342-43df-81fc-ce23b4518679
+
+
+
 This repository includes both a Daml library and an executable that reads gherkin .feature files and invokes your Daml test script with the feature as input.
 
 ## How to use this library
