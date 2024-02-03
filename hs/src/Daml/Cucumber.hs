@@ -1,11 +1,13 @@
 module Daml.Cucumber
   ( Opts(..)
   , start
+  , runWithLogger
   ) where
 
 import Control.Arrow (first)
-import Control.Exception (catch, SomeException(..))
+import Control.Exception (SomeException(..), catch)
 import Control.Monad
+import Control.Monad.Catch (MonadMask)
 import Control.Monad.IO.Class
 import Control.Monad.Log
 import Control.Monad.Log.Colors (wrapSGRCode)
@@ -25,6 +27,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Set (Set)
+import Data.String (IsString)
 import Data.Text qualified as T
 import Data.Text (Text)
 import Data.Text.IO qualified as T
@@ -61,13 +64,26 @@ data Opts = Opts
   }
   deriving (Show)
 
+-- | Run an action in a context that allows logging
+runWithLogger
+  :: (MonadIO m, MonadMask m, Monoid a, Pretty a, IsString a)
+  => Bool
+  -- ^ Verbose (enable debug logging)
+  -> LoggingT (WithSeverity a) m b
+  -- ^ Action to run with logging capabilities
+  -> m b
+runWithLogger verbose go = do
+  withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
+    runLoggingT go $ \msg -> case msgSeverity msg of
+      -- Debug | verbose -> stdoutHandler (renderLogMessage msg)
+      -- Debug -> pure ()
+      _ -> stdoutHandler (renderLogMessage msg)
+
+-- | Start daml-cucumber
 start :: Opts -> IO ()
 start opts = do
-  withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
-    runLoggingT runner $ \msg -> case msgSeverity msg of
-      Debug | _opts_verbose opts || _opts_logLsp opts -> stdoutHandler (renderLogMessage msg)
-      Debug -> pure ()
-      _ -> stdoutHandler (renderLogMessage msg)
+  let verbose = _opts_verbose opts || _opts_logLsp opts
+  runWithLogger verbose runner
   where
     runner = do
       case _opts_watch opts of

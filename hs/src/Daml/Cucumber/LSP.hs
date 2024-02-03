@@ -1,29 +1,56 @@
+{-# Language ConstraintKinds #-}
+{-# Language DataKinds #-}
+{-# Language TypeApplications #-}
+{-# Language GADTs #-}
+{-# Language MultiParamTypeClasses #-}
+{-# Language PolyKinds #-}
 {-# Language RankNTypes #-}
+{-# Language TypeFamilies #-}
+{-# Language FlexibleInstances #-}
+{-# Language StandaloneDeriving #-}
+{-# Language TypeOperators #-}
+{-# Language UndecidableInstances #-}
 module Daml.Cucumber.LSP
   ( runTestLspSession
+  , server
+  , go
   ) where
 
 import Control.Applicative
+import Control.Concurrent
+import Control.Concurrent.STM.TChan
+import Control.Lens hiding (has)
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Monad.Log
-import Control.Lens
+import Control.Monad.STM
 import Daml.Cucumber.Log
 import Daml.Cucumber.Utils
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Char8 as BS
+import Data.Constraint.Extras
+import Data.Constraint.Extras.TH
+import Data.Dependent.Sum
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Some
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
+import GHC.IO.Handle qualified as H
+import Language.LSP.Protocol.Capabilities qualified as LSP
+import Language.LSP.Protocol.Lens qualified as LSP
+import Language.LSP.Protocol.Message qualified as LSP
+import Language.LSP.Protocol.Types hiding (Hover, SemanticTokens)
+import Language.LSP.Protocol.Types qualified as LSP
+import Language.LSP.Test
 import NeatInterpolation (text)
 import Reflex hiding (Request, Response)
 import Reflex.Host.Headless
@@ -198,6 +225,361 @@ data DamlIde t = DamlIde
   , damlIde_allResponses :: Dynamic t [Response]
   , damlIde_exit :: Event t Text
   }
+
+data Lsp :: * -> * where
+  Lsp_Initialize :: Initialize a -> Lsp a
+  Lsp_Doc :: Doc a -> Lsp a
+  Lsp_Symbols :: Symbols a -> Lsp a
+  Lsp_Diagnostics :: Diagnostics a -> Lsp a
+  Lsp_Commands :: Commands a -> Lsp a
+  Lsp_CodeActions :: CodeActions a -> Lsp a
+  Lsp_Completions :: Completions a -> Lsp a
+  Lsp_References :: References a -> Lsp a
+  Lsp_Definitions :: Definitions a -> Lsp a
+  Lsp_Renaming :: Renaming a -> Lsp a
+  Lsp_Hover :: Hover a -> Lsp a
+  Lsp_Highlights :: Highlights a -> Lsp a
+  Lsp_Formatting :: Formatting a -> Lsp a
+  Lsp_Edits :: Edits a -> Lsp a
+  Lsp_CodeLenses :: CodeLenses a -> Lsp a
+  Lsp_CallHierarchy :: CallHierarchy a -> Lsp a
+  Lsp_SemanticTokens :: SemanticTokens a -> Lsp a
+  Lsp_Capabilities :: Capabilities a -> Lsp a
+
+deriving instance Show a => Show (Lsp a)
+
+data Initialize :: * -> * where
+  -- ^ Returns the initialize response that was received from the server. The
+  -- initialize requests and responses are not included the session, so if you
+  -- need to test it use this.
+  InitializeResponse :: Initialize (LSP.TResponseMessage 'LSP.Method_Initialize)
+
+deriving instance Show a => Show (Initialize a)
+
+data Doc :: * -> * where
+  -- | Creates a new text document. This is different from openDoc as it sends
+  -- a workspace/didChangeWatchedFiles notification letting the server know
+  -- that a file was created within the workspace, __provided that the server
+  -- has registered for it__, and the file matches any patterns the server
+  -- registered for. It does not actually create a file on disk, but is useful
+  -- for convincing the server that one does exist.
+  CreateDoc :: FilePath -> Text -> Text -> Doc TextDocumentIdentifier
+  -- | Opens a text document that exists on disk, and sends a
+  -- textDocument/didOpen notification to the server.
+  OpenDoc :: FilePath -> Text -> Doc TextDocumentIdentifier
+  -- | Closes a text document and sends a textDocument/didOpen notification to the server.
+  CloseDoc :: TextDocumentIdentifier -> Doc ()
+  -- | Changes a text document and sends a textDocument/didOpen notification to the server.
+  ChangeDoc
+    :: TextDocumentIdentifier
+    -> [TextDocumentContentChangeEvent]
+    -> Doc ()
+  -- | The current text contents of a document.
+  DocumentContents :: TextDocumentIdentifier -> Doc Text
+  -- | Parses an ApplyEditRequest, checks that it is for the passed document and returns the new content
+  GetDocumentEdit :: TextDocumentIdentifier -> Doc Text
+  -- | Gets the Uri for the file corrected to the session directory.
+  GetDocUri :: FilePath -> Doc Uri
+  -- | Adds the current version to the document, as tracked by the session.
+  GetVersionedDoc :: TextDocumentIdentifier -> Doc VersionedTextDocumentIdentifier
+
+deriving instance Show a => Show (Doc a)
+
+data Symbols :: * -> * where
+  GetDocumentSymbols
+    :: TextDocumentIdentifier
+    -> Symbols (Either [SymbolInformation] [DocumentSymbol])
+
+deriving instance Show a => Show (Symbols a)
+
+data Diagnostics :: * -> * where
+  -- | Waits for diagnostics to be published and returns them.
+  WaitForDiagnostics :: Diagnostics [Diagnostic]
+  -- | The same as waitForDiagnostics, but will only match a specific _source.
+  WaitForDiagnosticsSource :: String -> Diagnostics [Diagnostic]
+  -- | Expects a PublishDiagnosticsNotification and throws an
+  -- UnexpectedDiagnostics exception if there are any diagnostics returned.
+  NoDiagnostics :: Diagnostics ()
+  -- | Returns the current diagnostics that have been sent to the client. Note
+  -- that this does not wait for more to come in.
+  GetCurrentDiagnostics :: TextDocumentIdentifier -> Diagnostics [Diagnostic]
+  -- | Returns the tokens of all progress sessions that have started but not
+  -- yet ended.
+  GetIncompleteProgressSessions :: Diagnostics (Set ProgressToken)
+
+deriving instance Show a => Show (Diagnostics a)
+
+data Commands :: * -> * where
+  -- | Executes a command.
+  ExecuteCommand :: Command -> Commands ()
+
+deriving instance Show a => Show (Commands a)
+
+data CodeActions :: * -> * where
+  -- | Returns the code actions in the specified range.
+  GetCodeActions :: TextDocumentIdentifier -> Range -> CodeActions [Command |? CodeAction]
+  -- | Returns the code actions in the specified range, resolving any with a non empty _data_ field.
+  GetAndResolveCodeActions :: TextDocumentIdentifier -> Range -> CodeActions [Command |? CodeAction]
+  -- | Returns all the code actions in a document by querying the code actions at each of the current diagnostics' positions.
+  GetAllCodeActions :: TextDocumentIdentifier -> CodeActions [Command |? CodeAction]
+  -- | Executes a code action. Matching with the specification, if a code action contains both an edit and a command, the edit will be applied first.
+  ExecuteCodeAction :: CodeAction -> CodeActions ()
+  -- | Resolves the provided code action.
+  ResolveCodeAction :: CodeAction -> CodeActions CodeAction
+  -- | If a code action contains a _data_ field: resolves the code action, then executes it. Otherwise, just executes it.
+  ResolveAndExecuteCodeAction :: CodeAction -> CodeActions ()
+
+deriving instance Show a => Show (CodeActions a)
+
+data Completions :: * -> * where
+  -- | Returns the completions for the position in the document.
+  GetCompletions :: TextDocumentIdentifier -> Position -> Completions [CompletionItem]
+  -- | Returns the completions for the position in the document, resolving any with a non empty _data_ field.
+  GetAndResolveCompletions :: TextDocumentIdentifier -> Position -> Completions [CompletionItem]
+
+deriving instance Show a => Show (Completions a)
+
+data References :: * -> * where
+  -- | Returns the references for the position in the document.
+  GetReferences :: TextDocumentIdentifier -> Position -> Bool -> References [Location]
+
+deriving instance Show a => Show (References a)
+
+data Definitions a where
+  -- | Returns the declarations(s) for the term at the specified position.
+  GetDeclarations :: TextDocumentIdentifier -> Position -> Definitions (Declaration |? ([DeclarationLink] |? Null))
+  -- | Returns the definition(s) for the term at the specified position.
+  GetDefinitions :: TextDocumentIdentifier -> Position -> Definitions (Definition |? ([DefinitionLink] |? Null))
+  -- | Returns the type definition(s) for the term at the specified position.
+  GetTypeDefinitions :: TextDocumentIdentifier -> Position -> Definitions (Definition |? ([DefinitionLink] |? Null))
+  -- | Returns the type definition(s) for the term at the specified position.
+  GetImplementations :: TextDocumentIdentifier -> Position -> Definitions (Definition |? ([DefinitionLink] |? Null))
+
+deriving instance Show a => Show (Definitions a)
+
+data Renaming a where
+  -- | Renames the term at the specified position.
+  Rename :: TextDocumentIdentifier -> Position -> String -> Renaming ()
+
+deriving instance Show a => Show (Renaming a)
+
+data Hover a where
+  -- | Returns the hover information at the specified position.
+  GetHover :: TextDocumentIdentifier -> Position -> Hover (Maybe LSP.Hover)
+
+deriving instance Show a => Show (Hover a)
+
+data Highlights a where
+  -- | Returns the highlighted occurrences of the term at the specified position
+  GetHighlights :: TextDocumentIdentifier -> Position -> Highlights [DocumentHighlight]
+
+deriving instance Show a => Show (Highlights a)
+
+data Formatting a where
+  -- | Applies formatting to the specified document.
+  FormatDoc :: TextDocumentIdentifier -> FormattingOptions -> Formatting ()
+  -- | Applies formatting to the specified range in a document.
+  FormatRange :: TextDocumentIdentifier -> FormattingOptions -> Range -> Formatting ()
+
+deriving instance Show a => Show (Formatting a)
+
+data Edits a where
+  -- | Applys an edit to the document and returns the updated document version.
+  ApplyEdit :: TextDocumentIdentifier -> TextEdit -> Edits VersionedTextDocumentIdentifier
+
+deriving instance Show a => Show (Edits a)
+
+data CodeLenses a where
+  -- | Returns the code lenses for the specified document.
+  GetCodeLenses :: TextDocumentIdentifier -> CodeLenses [CodeLens]
+  -- | Returns the code lenses for the specified document, resolving any with a non empty _data_ field.
+  GetAndResolveCodeLenses :: TextDocumentIdentifier -> CodeLenses [CodeLens]
+  -- | Resolves the provided code lens.
+  ResolveCodeLens :: CodeLens -> CodeLenses CodeLens
+
+deriving instance Show a => Show (CodeLenses a)
+
+data CallHierarchy a where
+  -- | Pass a param and return the response from prepareCallHierarchy
+  PrepareCallHierarchy :: CallHierarchyPrepareParams -> CallHierarchy [CallHierarchyItem]
+  IncomingCalls :: CallHierarchyIncomingCallsParams -> CallHierarchy [CallHierarchyIncomingCall]
+  OutgoingCalls :: CallHierarchyOutgoingCallsParams -> CallHierarchy [CallHierarchyOutgoingCall]
+
+deriving instance Show a => Show (CallHierarchy a)
+
+data SemanticTokens a where
+  -- | Pass a param and return the response from prepareCallHierarchy
+  GetSemanticTokens :: TextDocumentIdentifier -> SemanticTokens (LSP.SemanticTokens |? Null)
+
+deriving instance Show a => Show (SemanticTokens a)
+
+data Capabilities a where
+  -- | Returns a list of capabilities that the server has requested to dynamically register during the Session.
+  GetRegisteredCapabilities :: Capabilities [LSP.SomeRegistration]
+
+deriving instance Show a => Show (Capabilities a)
+
+handleLsp :: Some Lsp -> Session (DSum Lsp Identity)
+handleLsp (Some req) = (req :=>) . Identity <$> case req of
+  Lsp_Initialize a -> case a of
+    InitializeResponse -> initializeResponse
+  Lsp_Doc doc -> case doc of
+    CreateDoc path a b -> createDoc path a b
+    OpenDoc path a -> openDoc path a
+    CloseDoc a -> closeDoc a
+    ChangeDoc a bs -> changeDoc a bs
+    DocumentContents a -> documentContents a
+    GetDocumentEdit a -> getDocumentEdit a
+    GetDocUri path -> getDocUri path
+    GetVersionedDoc a -> getVersionedDoc a
+  Lsp_Symbols symbols -> case symbols of
+    GetDocumentSymbols a -> getDocumentSymbols a
+  Lsp_Diagnostics diag -> case diag of
+    WaitForDiagnostics -> waitForDiagnostics
+    WaitForDiagnosticsSource a -> waitForDiagnosticsSource a
+    NoDiagnostics -> noDiagnostics
+    GetCurrentDiagnostics a -> getCurrentDiagnostics a
+    GetIncompleteProgressSessions -> getIncompleteProgressSessions
+  Lsp_Commands cmd -> case cmd of
+    ExecuteCommand a -> executeCommand a
+  Lsp_CodeActions ca -> case ca of
+    GetCodeActions i r -> getCodeActions i r
+    GetAndResolveCodeActions i r -> getAndResolveCodeActions i r
+    GetAllCodeActions i -> getAllCodeActions i
+    ExecuteCodeAction a -> executeCodeAction a
+    ResolveCodeAction a -> resolveCodeAction a
+    ResolveAndExecuteCodeAction a -> resolveAndExecuteCodeAction a
+  Lsp_Completions c -> case c of
+    GetCompletions i p -> getCompletions i p
+    GetAndResolveCompletions i p -> getAndResolveCompletions i p
+  Lsp_References r -> case r of
+    GetReferences i p b -> getReferences i p b
+  Lsp_Definitions d -> case d of
+    GetDeclarations i p -> getDeclarations i p
+    GetDefinitions i p -> getDefinitions i p
+    GetTypeDefinitions i p -> getTypeDefinitions i p
+    GetImplementations i p -> getImplementations i p
+  Lsp_Renaming r -> case r of
+    Rename i p s -> rename i p s
+  Lsp_Hover h -> case h of
+    GetHover i p -> getHover i p
+  Lsp_Highlights h -> case h of
+    GetHighlights i p -> getHighlights i p
+  Lsp_Formatting f -> case f of
+    FormatDoc i o -> formatDoc i o
+    FormatRange i o r -> formatRange i o r
+  Lsp_Edits e -> case e of
+    ApplyEdit i t -> applyEdit i t
+  Lsp_CodeLenses cl -> case cl of
+    GetCodeLenses i -> getCodeLenses i
+    GetAndResolveCodeLenses i -> getAndResolveCodeLenses i
+    ResolveCodeLens l -> resolveCodeLens l
+  Lsp_CallHierarchy h -> case h of
+    PrepareCallHierarchy p -> prepareCallHierarchy p
+    IncomingCalls p -> incomingCalls p
+    OutgoingCalls p -> outgoingCalls p
+  Lsp_SemanticTokens st -> case st of
+    GetSemanticTokens i -> getSemanticTokens i
+  Lsp_Capabilities c -> case c of
+    GetRegisteredCapabilities -> getRegisteredCapabilities
+
+go :: FilePath -> Log IO ()
+go p = do
+  handler <- askLogHandler
+  let
+    log :: MonadIO m' =>  Text -> m' ()
+    log = liftIO . flip runLoggingT handler . logDebug
+  cwd <- liftIO $ canonicalizePath p
+  liftIO $ runHeadlessApp $ do
+    rec
+      (hin, hout) <- server log cwd
+      (init, rsp) <- client log cwd hin hout never
+      shown <- performEvent $ ffor init $ \_ -> liftIO $ writeFile "x" "************** INIT *************"
+    pure shown
+
+client
+  :: ( MonadIO m
+     , TriggerEvent t m
+     , Reflex t
+     , MonadIO (Performable m)
+     , PerformEvent t m
+     )
+  => (forall m'. MonadIO m' => Text -> m' ())
+  -> FilePath
+  -> H.Handle
+  -> H.Handle
+  -> Event t (Either () (Some Lsp))
+  -> m (Event t (), Event t (DSum Lsp Identity))
+client log cwd serverInWrite serverOutRead e = do
+  (initE, writeInit) <- newTriggerEvent
+  (rspE, writeRsp) <- newTriggerEvent
+  -- Actions to run on the client. Left () shuts the client down.
+  msgChan <- liftIO newTChanIO
+  performEvent_ $ liftIO . atomically . writeTChan msgChan <$> e
+  let session = do
+        next <- liftIO $ atomically $ readTChan msgChan
+        log $ "Running next LSP command..."
+        case next of
+          Left () -> pure ()
+          Right lspApi -> liftIO . writeRsp =<< handleLsp lspApi
+      session0 = do
+        log "Initializing..."
+        liftIO $ writeInit ()
+        session
+  log "Starting LSP client..."
+  sessionThread <- liftIO $ forkIO $ runSessionWithHandles
+    serverInWrite -- server input handle, used to send messages
+    serverOutRead -- server output handle, used to receive responses
+    (defaultConfig { logStdErr = True, logMessages = True })
+    fullCaps
+    cwd
+    session0
+  pure (initE, rspE)
+
+
+server
+  :: forall t m.
+     ( PostBuild t m
+     , MonadHold t m
+     , MonadFix m
+     , MonadIO m
+     , MonadIO (Performable m)
+     , PerformEvent t m
+     , TriggerEvent t m
+     , Reflex t
+     )
+  => (forall m'. MonadIO m' => Text -> m' ())
+  -> FilePath
+  -> m (H.Handle, H.Handle)
+server log cwd = do
+  let damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
+  (input, writeInput) <- newTriggerEvent
+  log "Starting LSP server..."
+  proc <- createProcess damlProc (ProcessConfig input never)
+  performEvent_ $ ffor input $ log . T.pack . show
+  performEvent_ $ ffor (_process_stdout proc) $ log . T.decodeUtf8
+  performEvent_ $ ffor (_process_stderr proc) $ log . T.decodeUtf8
+  -- Handle used to get input from the client to the server process.
+  (serverInRead, serverInWrite) <- liftIO Proc.createPipe
+  -- Read the handle that the session writes to, and send the contents to the server
+  -- via it's input event
+  readerThread <- liftIO $ forkIO $ readHandle serverInRead $ writeInput . SendPipe_Message
+  -- Handle used to get output from the server to the client process.
+  (serverOutRead, serverOutWrite) <- liftIO Proc.createPipe
+  -- Send output produced by the server to the handle that the session reads from
+  performEvent_ $ ffor (_process_stdout proc) $ liftIO . BS.hPut serverOutWrite
+  pure (serverInWrite, serverOutRead)
+  where
+    readHandle :: H.Handle -> (BS.ByteString -> IO x) -> IO ()
+    readHandle h trigger = fix $ \continue -> do
+      open <- H.hIsOpen h
+      when open $ do
+        isReadable <- H.hIsReadable h
+        when isReadable $ do
+          out <- BS.hGetSome h 32768
+          if BS.null out
+            then H.hClose h
+            else void (trigger out) *> continue
 
 damlIde
   :: ( PostBuild t m
@@ -389,23 +771,41 @@ runTestLspSession cwd filepath verbose testNames = do
 
       newResults = updated $ Set.toList <$> currentResults
 
-      responses = fmap (fmapMaybe (preview _Notification)) $ updated currentResponses
-      publishDiagnostics = fmap (fmap rpcParams . filter ((== "textDocument/publishDiagnostics") . rpcMethod)) responses
-      errors = ffor publishDiagnostics $ \ds -> fforMaybe ds $ \case
-        (Object d) -> Aeson.lookup "diagnostics" d >>= (\(Object diag) -> Aeson.lookup "message" diag) >>= \(String msg) -> if "error:" `T.isInfixOf` msg then pure msg else Nothing
+      -- responses = fmap (fmapMaybe (preview _Notification)) $ updated currentResponses
+      -- publishDiagnostics = fmap (fmap rpcParams . filter ((== "textDocument/publishDiagnostics") . rpcMethod)) responses
+      -- errors = ffor publishDiagnostics $ \ds -> fforMaybe ds $ \case
+      --   (Object d) -> Aeson.lookup "diagnostics" d >>= (\(Object diag) -> Aeson.lookup "message" diag) >>= \(String msg) -> if "error:" `T.isInfixOf` msg then pure msg else Nothing
 
 
-    performEvent_ $ ffor (responses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
-    performEvent_ $ ffor (updated currentResponses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
-    performEvent_ $ ffor (publishDiagnostics) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
-    performEvent_ $ ffor (errors) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+    -- performEvent_ $ ffor (responses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+    -- performEvent_ $ ffor (updated currentResponses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+    -- performEvent_ $ ffor (publishDiagnostics) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
+    -- performEvent_ $ ffor (errors) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
 
     pure $ leftmost
       [ fmap Right $ bounce ((== length reqs) . length) $ newResults
       , fmap (Left . ("Daml doesn't compile:\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n" . catMaybes . fmap (getCompileError . testResponseResult)) <$> newResults
-      , fmap (Left . ("Daml doesn't compile:\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n") <$> errors
+      -- , fmap (Left . ("Daml doesn't compile:\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n") <$> errors
       , Left <$> failed
       ]
   pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
 
-
+deriveArgDict ''Initialize
+deriveArgDict ''Doc
+deriveArgDict ''Symbols
+deriveArgDict ''Diagnostics
+deriveArgDict ''Commands
+deriveArgDict ''CodeActions
+deriveArgDict ''Completions
+deriveArgDict ''References
+deriveArgDict ''Definitions
+deriveArgDict ''Renaming
+deriveArgDict ''Hover
+deriveArgDict ''Highlights
+deriveArgDict ''Formatting
+deriveArgDict ''Edits
+deriveArgDict ''CodeLenses
+deriveArgDict ''CallHierarchy
+deriveArgDict ''SemanticTokens
+deriveArgDict ''Capabilities
+deriveArgDict ''Lsp
