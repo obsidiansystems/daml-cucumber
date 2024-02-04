@@ -75,8 +75,8 @@ runWithLogger
 runWithLogger verbose go = do
   withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
     runLoggingT go $ \msg -> case msgSeverity msg of
-      -- Debug | verbose -> stdoutHandler (renderLogMessage msg)
-      -- Debug -> pure ()
+      Debug | verbose -> stdoutHandler (renderLogMessage msg)
+      Debug -> pure ()
       _ -> stdoutHandler (renderLogMessage msg)
 
 -- | Start daml-cucumber

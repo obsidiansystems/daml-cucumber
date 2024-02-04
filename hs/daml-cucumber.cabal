@@ -32,6 +32,7 @@ library
     Daml.Cucumber.LSP
     Daml.Cucumber.Parse
     Daml.Cucumber.Types
+    Reflex.LSP
 
   build-depends:
     , abacate                >=0.0     && <0.1

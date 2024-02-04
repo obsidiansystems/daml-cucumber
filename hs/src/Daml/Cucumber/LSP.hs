@@ -12,28 +12,23 @@
 {-# Language UndecidableInstances #-}
 module Daml.Cucumber.LSP
   ( runTestLspSession
-  , go
-  , simpleTest
+  , test
   ) where
 
+import Prelude hiding (log)
+
 import Control.Applicative
-import Control.Concurrent
-import Control.Concurrent.STM.TChan
-import Control.Exception qualified as Ex
-import Control.Lens hiding (has)
+import Control.Lens hiding (has, without)
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Control.Monad.Log
-import Control.Monad.STM
 import Daml.Cucumber.Log
 import Daml.Cucumber.Utils
 import Data.Aeson
-import Data.Aeson.KeyMap qualified as Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Char8 as BS
 import Data.Constraint.Extras
-import Data.Constraint.Extras.TH
 import Data.Dependent.Sum
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -45,13 +40,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
-import GHC.IO.Handle qualified as H
-import Language.LSP.Protocol.Capabilities qualified as LSP
-import Language.LSP.Protocol.Lens qualified as LSP
-import Language.LSP.Protocol.Message qualified as LSP
-import Language.LSP.Protocol.Types hiding (Hover, SemanticTokens)
-import Language.LSP.Protocol.Types qualified as LSP
-import Language.LSP.Test
 import NeatInterpolation (text)
 import Reflex hiding (Request, Response)
 import Reflex.Host.Headless
@@ -228,28 +216,8 @@ data DamlIde t = DamlIde
   , damlIde_exit :: Event t Text
   }
 
-simpleTest :: IO ()
-simpleTest = do
-  cwd <- canonicalizePath "../example"
-  let damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
-  runSessionWithConfigCustomProcess (setCwd cwd)
-    (defaultConfig { logStdErr = True, logMessages = True })
-    (unwords [ damlPath, "ide", "--debug", "--scenarios", "yes"])
-    fullCaps
-    cwd
-    $ do
-      x <- getRegisteredCapabilities
-      liftIO $ print x
-      x <- initializeResponse
-      liftIO $ print x
-      rsp <- openDoc "daml/Main.daml" "daml"
-      liftIO $ print rsp
-      diags <- waitForDiagnostics
-      liftIO $ print diags
-
-
-go :: FilePath -> Log IO ()
-go p = do
+test :: FilePath -> Log IO ()
+test p = do
   handler <- askLogHandler
   let
     log :: MonadIO m' =>  Text -> m' ()
@@ -257,18 +225,22 @@ go p = do
   cwd <- liftIO $ canonicalizePath p
   liftIO $ runHeadlessApp $ do
     rec
-      (init, rsp) <- lsp log cwd (Proc.RawCommand damlPath ["ide", "--debug", "--scenarios", "yes"]) $ leftmost
-        [ ffor init $ \_ -> Right
-          [ Some $ Lsp_Doc $ OpenDoc "daml/Main.daml" "daml"
-          , Some $ Lsp_Diagnostics $ WaitForDiagnostics
+      LspClient init rsp shutdown <- lsp $ LspClientConfig
+        { _lspClientConfig_log = log
+        , _lspClientConfig_workingDirectory = cwd
+        , _lspClientConfig_serverCommand = Proc.RawCommand damlPath ["ide", "--debug", "--scenarios", "yes"]
+        , _lspClientConfig_requests = leftmost
+          [ ffor init $ \_ -> Right
+            [ Some $ Lsp_Doc $ OpenDoc "daml/Main.daml" "daml"
+            , Some $ Lsp_Diagnostics $ WaitForDiagnostics
+            ]
+          , fforMaybe rsp $ \case
+              ((Lsp_Diagnostics _) :=> _) -> Just (Left ())
+              _ -> Nothing
           ]
-        , shutdown
-        ]
-      performEvent_ $ ffor rsp $ \(tag :=> v) -> log . T.pack $ has @Show tag $ show v
-      let shutdown = fforMaybe rsp $ \case
-            (Lsp_Diagnostics WaitForDiagnostics :=> _) -> Just $ Left ()
-            _ -> Nothing
-    fmap (()<$) $ delay 1 shutdown
+        }
+    performEvent_ $ ffor rsp $ \(k :=> v) -> log . T.pack $ has @Show k $ show v
+    pure shutdown
 
 damlIde
   :: ( PostBuild t m

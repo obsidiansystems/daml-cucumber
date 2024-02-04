@@ -13,26 +13,24 @@
 
 module Reflex.LSP where
 
+import Prelude hiding (log)
+
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.IO.Class
-import Data.Constraint.Extras
 import Data.Constraint.Extras.TH
 import Data.Dependent.Sum
 import Data.Functor.Identity
 import Data.Set (Set)
 import Data.Some
 import Data.Text (Text)
-import Language.LSP.Protocol.Capabilities qualified as LSP
-import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types hiding (Hover, SemanticTokens)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Test
 import Reflex
 import System.Process
-
 
 data Lsp :: * -> * where
   Lsp_Initialize :: Initialize a -> Lsp a
@@ -311,6 +309,19 @@ deriveArgDict ''SemanticTokens
 deriveArgDict ''Capabilities
 deriveArgDict ''Lsp
 
+data LspClient t = LspClient
+  { _lspClient_init :: Event t ()
+  , _lspClient_responses :: Event t (DSum Lsp Identity)
+  , _lspClient_shutdown :: Event t ()
+  }
+
+data LspClientConfig t = LspClientConfig
+  { _lspClientConfig_log :: (forall m. MonadIO m => Text -> m ())
+  , _lspClientConfig_workingDirectory :: FilePath
+  , _lspClientConfig_serverCommand :: CmdSpec
+  , _lspClientConfig_requests :: Event t (Either () [Some Lsp])
+  }
+
 lsp
   :: ( MonadIO m
      , TriggerEvent t m
@@ -318,14 +329,12 @@ lsp
      , MonadIO (Performable m)
      , PerformEvent t m
      )
-  => (forall m'. MonadIO m' => Text -> m' ())
-  -> FilePath
-  -> CmdSpec
-  -> Event t (Either () [Some Lsp])
-  -> m (Event t (), Event t (DSum Lsp Identity))
-lsp log cwd cmd e = do
+  => LspClientConfig t
+  -> m (LspClient t)
+lsp (LspClientConfig log workingDirectory cmd e) = do
   (initE, writeInit) <- newTriggerEvent
   (rspE, writeRsp) <- newTriggerEvent
+  (shutdownE, writeShutdown) <- newTriggerEvent
   -- Actions to run on the client. Left () shuts the client down.
   msgChan <- liftIO newTChanIO
   performEvent_ $ liftIO . atomically . writeTChan msgChan <$> e
@@ -334,19 +343,27 @@ lsp log cwd cmd e = do
         log $ "Running next LSP command..."
         case next of
           Right lspApis -> do
-            forM_ lspApis $ \lspApi -> liftIO . writeRsp =<< handleLsp lspApi
+            forM_ lspApis $ liftIO . writeRsp <=< handleLsp
             session
-          Left () -> log "Received shutdown request..."
+          Left () -> do
+            log "Received shutdown request..."
+            exitServer
+            liftIO $ writeShutdown ()
       session0 = do
         log "Initializing..."
         liftIO $ writeInit ()
         session
   log "Starting LSP client..."
   sessionThread <- liftIO $ forkIO $ do
-    runSessionWithConfigCustomProcess (\p -> p { cmdspec = cmd })
-      defaultConfig
+    runSessionWithConfigCustomProcess (\c -> c { cmdspec = cmd })
+      (defaultConfig { logStdErr = False, logMessages = False })
       ""
       fullCaps
-      cwd
+      workingDirectory
       session0
-  pure (initE, rspE)
+  shutdown <- performEvent $ ffor shutdownE $ const $ liftIO $ killThread sessionThread
+  pure $ LspClient initE rspE shutdown
+  where
+    exitServer = do
+      request_ LSP.SMethod_Shutdown Nothing
+      sendNotification LSP.SMethod_Exit Nothing
