@@ -296,17 +296,18 @@ deriveArgDict ''SemanticTokens
 deriveArgDict ''Capabilities
 deriveArgDict ''Lsp
 
-data LspClient t = LspClient
+data LspClient t proto = LspClient
   { _lspClient_init :: Event t ()
-  , _lspClient_responses :: Event t (DSum Lsp Identity)
+  , _lspClient_responses :: Event t (DSum proto Identity)
   , _lspClient_shutdown :: Event t ()
   }
 
-data LspClientConfig t = LspClientConfig
+data LspClientConfig t proto = LspClientConfig
   { _lspClientConfig_log :: (forall m. MonadIO m => Text -> m ())
   , _lspClientConfig_workingDirectory :: FilePath
   , _lspClientConfig_serverCommand :: CmdSpec
-  , _lspClientConfig_requests :: Event t (Either () [Some Lsp])
+  , _lspClientConfig_handler :: Some proto -> Session (DSum proto Identity)
+  , _lspClientConfig_requests :: Event t (Either () [Some proto])
   }
 
 lsp
@@ -316,9 +317,9 @@ lsp
      , MonadIO (Performable m)
      , PerformEvent t m
      )
-  => LspClientConfig t
-  -> m (LspClient t)
-lsp (LspClientConfig log workingDirectory cmd e) = do
+  => LspClientConfig t proto
+  -> m (LspClient t proto)
+lsp (LspClientConfig log workingDirectory cmd handler e) = do
   (initE, writeInit) <- newTriggerEvent
   (rspE, writeRsp) <- newTriggerEvent
   (shutdownE, writeShutdown) <- newTriggerEvent
@@ -330,7 +331,7 @@ lsp (LspClientConfig log workingDirectory cmd e) = do
         log $ "Running next LSP command..."
         case next of
           Right lspApis -> do
-            forM_ lspApis $ liftIO . writeRsp <=< handleLsp
+            forM_ lspApis $ liftIO . writeRsp <=< handler
             session
           Left () -> do
             log "Received shutdown request..."
@@ -342,8 +343,11 @@ lsp (LspClientConfig log workingDirectory cmd e) = do
         session
   log "Starting LSP client..."
   sessionThread <- liftIO $ forkIO $ do
-    runSessionWithConfigCustomProcess (\c -> c { cmdspec = cmd })
-      (defaultConfig { logStdErr = False, logMessages = False })
+    runSessionWithConfigCustomProcess (\c -> c
+      { cmdspec = cmd
+      , cwd = Just workingDirectory
+      })
+      (defaultConfig { logStdErr = True, logMessages = True })
       ""
       fullCaps
       workingDirectory

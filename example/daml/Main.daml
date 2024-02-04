@@ -42,5 +42,6 @@ setup = script do
   bobTV <- submit alice do
     exerciseCmd aliceTV Give with newOwner = bob
 
-  submit bob do
+  submit alice do
     exerciseCmd bobTV Give with newOwner = alice
+  pure bobTV

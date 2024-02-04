@@ -1,3 +1,4 @@
+{-# Language PolyKinds #-}
 module Daml.Cucumber.LSP
   ( runTestLspSession
   , test
@@ -6,7 +7,8 @@ module Daml.Cucumber.LSP
 import Prelude hiding (log)
 
 import Control.Applicative
-import Control.Lens hiding (has, without)
+import Control.Applicative.Combinators (skipManyTill)
+import Control.Lens ((^.))
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
@@ -17,17 +19,25 @@ import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Char8 as BS
 import Data.Constraint.Extras
+import Data.Constraint.Extras.TH
 import Data.Dependent.Sum
+import Data.Functor.Identity
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Proxy
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Some
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Language.LSP.Protocol.Lens qualified as LSP
+import Language.LSP.Protocol.Message qualified as LSP
+import Language.LSP.Protocol.Types
+import Language.LSP.Test
 import NeatInterpolation (text)
+import Network.URI (escapeURIString, isUnescapedInURIComponent)
 import Reflex hiding (Request, Response)
 import Reflex.Host.Headless
 import Reflex.LSP
@@ -38,6 +48,7 @@ import System.Posix.Types
 import qualified System.Process as Proc
 import System.Which
 import Text.HTML.TagSoup
+
 
 data RanTest = RanTest
   { ranTestTraces :: [Text]
@@ -408,16 +419,71 @@ test p = do
         { _lspClientConfig_log = log
         , _lspClientConfig_workingDirectory = cwd
         , _lspClientConfig_serverCommand = Proc.RawCommand damlPath ["ide", "--debug", "--scenarios", "yes"]
+        , _lspClientConfig_handler = handleDamlLsp
         , _lspClientConfig_requests = leftmost
           [ ffor init $ \_ -> Right
-            [ Some $ Lsp_Doc $ OpenDoc "daml/Main.daml" "daml"
-            , Some $ Lsp_Diagnostics $ WaitForDiagnostics
+            [ Some $ DamlLsp_Lsp $ Lsp_Doc $ OpenDoc "daml/Main.daml" "daml"
+            , Some $ DamlLsp_Lsp $ Lsp_Diagnostics $ WaitForDiagnostics
+            , Some $ DamlLsp_OpenScenario "daml/Main.daml" "setup"
+            , Some $ DamlLsp_WaitForScenarioDidChange
             ]
           , fforMaybe rsp $ \case
-              ((Lsp_Diagnostics _) :=> _) -> Just (Left ())
+              (DamlLsp_Lsp (Lsp_Diagnostics _) :=> _) -> Just (Left ())
               _ -> Nothing
           ]
         }
     performEvent_ $ ffor rsp $ \(k :=> v) -> log . T.pack $ has @Show k $ show v
     pure shutdown
 
+data DamlLsp a where
+  DamlLsp_Lsp :: Lsp a -> DamlLsp a
+  DamlLsp_OpenScenario :: FilePath -> String -> DamlLsp TextDocumentIdentifier
+  DamlLsp_WaitForScenarioDidChange :: DamlLsp VirtualResourceChangedParams
+
+handleDamlLsp :: Some DamlLsp -> Session (DSum DamlLsp Identity)
+handleDamlLsp (Some req) = case req of
+  DamlLsp_Lsp a -> do
+    (k :=> v) <- handleLsp (Some a)
+    pure $ DamlLsp_Lsp k :=> v
+  DamlLsp_OpenScenario fp str -> (req :=>) . Identity <$> openScenario fp str
+  DamlLsp_WaitForScenarioDidChange -> (req :=>) . Identity <$> waitForScenarioDidChange
+
+scenarioUri :: FilePath -> String -> Session Uri
+scenarioUri fp name = do
+    Just fp' <- uriToFilePath <$> getDocUri fp
+    pure $ Uri $ T.pack $
+        "daml://compiler?file=" <> escapeURIString isUnescapedInURIComponent fp' <>
+        "&top-level-decl=" <> name
+
+openScenario :: FilePath -> String -> Session TextDocumentIdentifier
+openScenario fp name = do
+    uri <- scenarioUri fp name
+    sendNotification LSP.SMethod_TextDocumentDidOpen (DidOpenTextDocumentParams $ TextDocumentItem uri (T.pack "daml") 0 "")
+    pure $ TextDocumentIdentifier uri
+
+-- | Parameters for the virtual resource changed notification
+data VirtualResourceChangedParams = VirtualResourceChangedParams
+    { _vrcpUri      :: !T.Text
+      -- ^ The uri of the virtual resource.
+    , _vrcpContents :: !T.Text
+      -- ^ The new contents of the virtual resource.
+    } deriving Show
+
+instance ToJSON VirtualResourceChangedParams where
+    toJSON (VirtualResourceChangedParams uri contents) =
+        object ["uri" .= uri, "contents" .= contents ]
+
+instance FromJSON VirtualResourceChangedParams where
+    parseJSON = withObject "VirtualResourceChangedParams" $ \o ->
+        VirtualResourceChangedParams <$> o .: "uri" <*> o .: "contents"
+
+waitForScenarioDidChange :: Session VirtualResourceChangedParams
+waitForScenarioDidChange = do
+  LSP.NotMess scenario <- skipManyTill anyMessage scenarioDidChange
+  -- pure $ scenario ^. LSP.params
+  case fromJSON $ scenario ^. LSP.params of
+      Success p -> pure p
+      Data.Aeson.Types.Error s -> fail $ "Failed to parse daml/virtualResource/didChange params: " <> s
+  where scenarioDidChange = customNotification $ Proxy @"daml/virtualResource/didChange"
+
+deriveArgDict ''DamlLsp
