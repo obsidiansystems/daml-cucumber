@@ -39,7 +39,6 @@ import Data.Some
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
 import NeatInterpolation (text)
 import Reflex hiding (Request, Response)
 import Reflex.Host.Headless
@@ -343,8 +342,8 @@ bsSafeLast bs
   | BS.null bs = Nothing
   | otherwise = Just $ BS.last bs
 
-mkDidOpenUri :: Text -> Text -> RPC Text
-mkDidOpenUri fileContents uri =
+mkDidOpenUri :: Text -> RPC Text
+mkDidOpenUri uri =
   RPC "textDocument/didOpen" params
   where
     params =
@@ -354,7 +353,7 @@ mkDidOpenUri fileContents uri =
             "uri": "$uri",
             "languageId": "",
             "version": 0,
-            "text": "$fileContents"
+            "text": ""
           }
         }
       |]
@@ -395,11 +394,10 @@ runTestLspSession cwd filepath verbose testNames = do
   logDebug $ "Running lsp session in " <> T.pack cwd <> " ..."
   cwd' <- liftIO $ canonicalizePath cwd
   filepath' <- liftIO $ canonicalizePath filepath
-  generatedFile <- liftIO $ T.intercalate "\\n" .  T.lines . T.replace "\"" "\\\"" . T.replace "\\" "\\\\" <$> T.readFile filepath'
   pid <- liftIO getProcessID
   let
-    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri "" $ mkTestUri filepath' tname)) $ zip [2..] testNames
-    allReqs = ("Init", Request 0 (mkInitPayload pid)) : ("Compile", Request 1 (mkDidOpenUri generatedFile $ "file://" <> ("daml/Generated.daml"))) : reqs
+    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath' tname)) $ zip [2..] testNames
+    allReqs = ("Init", Request 0 (mkInitPayload pid)) : ("Compile", Request 1 (mkDidOpenUri $ "file://" <> ("daml/Generated.daml"))) : reqs
 
   logHandler <- askLogHandler
   testResults <- liftIO $ runHeadlessApp $ do
@@ -432,21 +430,9 @@ runTestLspSession cwd filepath verbose testNames = do
 
       newResults = updated $ Set.toList <$> currentResults
 
-      -- responses = fmap (fmapMaybe (preview _Notification)) $ updated currentResponses
-      -- publishDiagnostics = fmap (fmap rpcParams . filter ((== "textDocument/publishDiagnostics") . rpcMethod)) responses
-      -- errors = ffor publishDiagnostics $ \ds -> fforMaybe ds $ \case
-      --   (Object d) -> Aeson.lookup "diagnostics" d >>= (\(Object diag) -> Aeson.lookup "message" diag) >>= \(String msg) -> if "error:" `T.isInfixOf` msg then pure msg else Nothing
-
-
-    -- performEvent_ $ ffor (responses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
-    -- performEvent_ $ ffor (updated currentResponses) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
-    -- performEvent_ $ ffor (publishDiagnostics) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
-    -- performEvent_ $ ffor (errors) $ liftIO . flip runLoggingT logHandler . logDebug . T.pack . show
-
     pure $ leftmost
       [ fmap Right $ bounce ((== length reqs) . length) $ newResults
       , fmap (Left . ("Daml doesn't compile:\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n" . catMaybes . fmap (getCompileError . testResponseResult)) <$> newResults
-      -- , fmap (Left . ("Daml doesn't compile:\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n") <$> errors
       , Left <$> failed
       ]
   pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
