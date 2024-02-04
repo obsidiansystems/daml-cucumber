@@ -1,16 +1,3 @@
-{-# Language ConstraintKinds #-}
-{-# Language DataKinds #-}
-{-# Language TypeApplications #-}
-{-# Language GADTs #-}
-{-# Language MultiParamTypeClasses #-}
-{-# Language PolyKinds #-}
-{-# Language RankNTypes #-}
-{-# Language TypeFamilies #-}
-{-# Language FlexibleInstances #-}
-{-# Language StandaloneDeriving #-}
-{-# Language TypeOperators #-}
-{-# Language UndecidableInstances #-}
-
 module Reflex.LSP where
 
 import Prelude hiding (log)
