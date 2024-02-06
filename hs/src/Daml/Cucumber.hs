@@ -20,6 +20,7 @@ import Daml.Cucumber.Types
 import Daml.Cucumber.Utils
 import Data.Char
 import Data.Foldable
+import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -356,15 +357,18 @@ report definedSteps testResults features =
    in resultMap
   where
     getScenarioResults :: Scenario -> [(Step, StepReport)]
-    getScenarioResults = getResults id getScenarioFunctionName
+    getScenarioResults = getResults id id getScenarioFunctionName
 
     getOutlineResults :: Outline -> [[(Step, StepReport)]]
-    getOutlineResults outline = mconcat $ fmap go . zip [(1::Int)..] . (outline <$) . tail . _examples_table <$> _outline_examples outline
-      where
-        go = getResults (_outline_scenario . snd) (uncurry getOutlineRowFunctionName)
+    getOutlineResults outline = mconcat $ 
+      ffor (_outline_examples outline) $ \ex -> do
+        (headerRow, values) <- maybeToList $ List.uncons (_examples_table ex)
+        ffor (zip [(1::Int)..] values) $ \(index, vals) ->
+          let formatStep = foldr (.) id $ fmap (\(h, v) step -> step { _step_body = T.replace ("<"<>h<>">") v (_step_body step) }) $ zip headerRow vals
+           in getResults formatStep (_outline_scenario . snd) (uncurry getOutlineRowFunctionName) (index, outline)
 
-    getResults :: (a -> Scenario) -> (a -> Text) -> a -> [(Step, StepReport)]
-    getResults getScenario getFunctionName a =
+    getResults :: (Step -> Step) -> (a -> Scenario) -> (a -> Text) -> a -> [(Step, StepReport)]
+    getResults formatStep getScenario getFunctionName a =
       let
         Scenario _ steps = getScenario a
         fname = getFunctionName a
@@ -372,7 +376,7 @@ report definedSteps testResults features =
         resultMap = scenarioResultMap a
         getResult = flip Map.lookup resultMap
       in
-        flip map steps $ \stp -> (stp,) $
+        flip map steps $ \stp -> (formatStep stp,) $
           case getResult (T.pack $ prettyPrintStep stp) of
             Just True -> StepSucceeded
             Just False -> StepFailed errors
