@@ -4,15 +4,24 @@ import Cucumber
 import DA.Action.State.Class
 import Daml.Script
 import Main qualified as M
+import DA.Map qualified as Map
+import DA.Map (Map)
 
 data Ctx = Ctx with
-  alice : Optional Party
-  bob : Optional Party
   issuer : Optional Party
+  namedParties : Map Text Party
   knownAssetId : Optional M.AssetId
 
 instance Default Ctx where
-  def = Ctx None None None None
+  def = Ctx None Map.empty None
+
+getPartyByName : Text -> Cucumber Ctx (Optional Party)
+getPartyByName partyName =
+  gets (Map.lookup partyName . namedParties)
+
+addNamedParty : Text -> Party -> Cucumber Ctx ()
+addNamedParty pname p =
+  modify $ \ctx -> ctx { namedParties = Map.insert pname p ctx.namedParties }
 
 -- Given an issuer party
 given_an_issuer : Cucumber Ctx ()
@@ -58,7 +67,7 @@ issuer_creates_asset_for_self = do
 issuer_creates_asset : Cucumber Ctx (ContractId M.Asset)
 issuer_creates_asset = do
   Some p <- gets issuer
-  Some owner <- gets alice
+  Some owner <- getPartyByName "alice"
   assetId <- liftScript $ submit p $ createCmd M.Asset with
     issuer = p
     name = "VCR"
@@ -69,7 +78,7 @@ issuer_creates_asset = do
 -- When the owner of the asset tries to give it to themself
 owner_give_to_self : Cucumber Ctx ()
 owner_give_to_self = do
-  Some owner <- gets alice
+  Some owner <- getPartyByName "alice"
   Some assetId <- gets knownAssetId
   liftScript $ submitMustFail owner $
     exerciseCmd assetId M.Give with newOwner = owner
@@ -85,7 +94,7 @@ asset_owner_is_issuer = do
 -- Then an asset is created owned by the second party
 asset_owner_is_alice : Cucumber Ctx ()
 asset_owner_is_alice = do
-  Some alice <- gets alice
+  Some alice <- getPartyByName "alice"
   [asset] <- liftScript $ query @M.Asset alice
   assertMsg "Expected asset owner to be the second party" $
     asset._2.owner == alice
@@ -102,4 +111,42 @@ asset_id_unchanged = do
 given_a_second_party : Cucumber Ctx ()
 given_a_second_party = do
   p <- liftScript $ allocateParty "alice"
-  modify $ \ctx -> ctx { alice = Some p }
+  addNamedParty "alice" p
+
+-- Given an asset called <name>
+given_named_asset : Text -> Cucumber Ctx ()
+given_named_asset t = do
+  given_an_issuer
+  Some p <- gets issuer
+  assetId <- liftScript $ submit p $ createCmd M.Asset with
+      issuer = p
+      name = t
+      owner = p
+  modify $ \ctx -> ctx { knownAssetId = Some assetId }
+
+-- And a party called <party>
+given_a_named_party : Text -> Cucumber Ctx ()
+given_a_named_party pname = do
+  p <- liftScript $ allocateParty pname
+  addNamedParty pname p
+
+-- When the issuer transfers the asset called <name> to <party>
+transfer_named_asset_to_party : Text -> Text -> Cucumber Ctx ()
+transfer_named_asset_to_party assetName partyName = do
+  Some p <- getPartyByName partyName
+  Some issuer <- gets issuer
+  Some assetId <- gets knownAssetId
+  Some asset <- lookup assetId <$> liftScript (query @M.Asset issuer)
+  assertMsg "Incorrect asset" $ asset.name == assetName
+  newAssetId <- liftScript $ submit issuer $ exerciseCmd assetId M.Give with newOwner = p
+  modify $ \ctx -> ctx { knownAssetId = Some newAssetId }
+  pure ()
+
+-- Then <party> now has the asset called <name>
+party_now_has_named_asset : Text -> Text -> Cucumber Ctx ()
+party_now_has_named_asset name assetName = do
+  Some p <- getPartyByName name
+  Some assetId <- gets knownAssetId
+  Some asset <- lookup assetId <$> liftScript (query @M.Asset p)
+  assertMsg "Incorrect asset" $ asset.name == assetName
+  assertMsg "Incorrect owner" $ asset.owner == p
