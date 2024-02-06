@@ -4,7 +4,7 @@ module Daml.Cucumber
   ) where
 
 import Control.Arrow (first)
-import Control.Exception (catch, SomeException(..))
+import Control.Exception (SomeException(..), catch)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Log
@@ -186,8 +186,7 @@ getContextTypeDefinitionFile :: Text -> [DamlFile] -> Maybe FilePath
 getContextTypeDefinitionFile typeName files =
   safeHead $ fmap damlFilePath $ filter filterFunc files
   where
-    filterFunc (DamlFile _ typesyns defs) = any isDefForType defs
-
+    filterFunc (DamlFile _ _typesyns defs) = any isDefForType defs
     isDefForType :: Definition -> Bool
     isDefForType (Definition name _ _) | typeName == name = True
     isDefForType _ = False
@@ -346,7 +345,7 @@ report
 report definedSteps testResults features =
   let
     filterScenarios = filter (isScenarioRunnable definedSteps)
-    resultMap = ffor features $ \f -> 
+    resultMap = ffor features $ \f ->
       ( f
       , let scenarios = filterScenarios (_feature_scenarios f)
             scenariosMap = fmap (\s -> (Left s, getScenarioResults s)) scenarios
@@ -360,7 +359,7 @@ report definedSteps testResults features =
     getScenarioResults = getResults id id getScenarioFunctionName
 
     getOutlineResults :: Outline -> [[(Step, StepReport)]]
-    getOutlineResults outline = mconcat $ 
+    getOutlineResults outline = mconcat $
       ffor (_outline_examples outline) $ \ex -> do
         (headerRow, values) <- maybeToList $ List.uncons (_examples_table ex)
         ffor (zip [(1::Int)..] values) $ \(index, vals) ->
@@ -459,7 +458,7 @@ generateDamlSource definedSteps stepMapping features = do
         sname = getScenarioFunctionName scenario
       modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames) (_scenario_name scenario)
     for_ (filter (isScenarioRunnable definedSteps . _outline_scenario) $ _feature_outlines feature) $ \outline@(Outline examples scenario) -> do
-      for_ examples $ \(Examples name table) -> do
+      for_ examples $ \(Examples _name table) -> do
         case table of
           [] -> error "Expected at least the header row"
           (headerRow : values) -> do
@@ -468,7 +467,7 @@ generateDamlSource definedSteps stepMapping features = do
               fnames <- fmap mconcat $ for (_scenario_steps scenario) $ \step -> do
                 case Map.lookup step stepMapping of
                   Nothing -> pure []
-                  Just (StepFunc file fname) -> do
+                  Just (StepFunc _file fname) -> do
                     let parameterNames = parseStepParameterNames (_step_body step)
                         parameters = fmap (T.pack . show) $ catMaybes $ flip Map.lookup value <$> parameterNames
                         fnameAndArgs = T.unwords (fname : parameters)
@@ -484,8 +483,8 @@ parseStepParameterNames str = do
   guard $ not $ T.null str
   let tagStart = T.drop 1 $ T.dropWhile (/= '<') str
   guard $ not $ T.null tagStart
-  let tag = T.takeWhile (/= '>') tagStart
-  tag : parseStepParameterNames (T.drop (T.length tag) tagStart)
+  let tag' = T.takeWhile (/= '>') tagStart
+  tag' : parseStepParameterNames (T.drop (T.length tag') tagStart)
 
 debug :: Text -> Text
 debug n = "debug \"" <> n <> "\""
