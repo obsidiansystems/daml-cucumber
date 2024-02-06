@@ -1,31 +1,22 @@
 module Main where
 
 import Daml.Cucumber
+import Data.Version
 import Options.Applicative
-
-data Opts = Opts
-  { _opts_directory :: FilePath
-  , _opts_featureFile :: Maybe FilePath
-  , _opts_damlSourceDir :: FilePath
-  , _opts_allowMissing :: Bool
-  , _opts_generateOnly :: Bool
-  , _opts_verbose :: Bool
-  }
+import Paths_daml_cucumber (version)
+import Options.Applicative.NonEmpty
 
 opts :: Parser Opts
 opts = Opts
-  <$> strOption
-      ( long "directory"
+  <$> some1 (strOption
+      ( long "features"
+      <> short 'f'
       <> metavar "FILEPATH"
-      <> help "Directory where feature files and daml files are" )
-  <*> optional (strOption
-      ( long "feature-file"
-      <> metavar "FILEPATH"
-      <> help "Directory where feature files and daml files are" ))
+      <> help "Directory where cucumber feature files are located, or the path to a single feature file." ))
   <*> strOption
       ( long "source"
       <> metavar "FILEPATH"
-      <> help "Directory the daml.yaml points to your source" )
+      <> help "Directory containing daml.yaml" )
   <*> flag False True
       ( long "allow-missing"
       <> help "Don't fail if steps are missing" )
@@ -34,19 +25,21 @@ opts = Opts
       <> help "Generate daml test script but don't run the tests" )
   <*> flag False True
       ( long "verbose"
-      <> help "Show intermediate output from LSP test run" )
+      <> short 'v'
+      <> help "Verbose output" )
+  <*> flag False True
+      ( long "log-lsp"
+      <> help "Show intermediate output from LSP test run"
+      <> internal )
+  <*> flag False True
+      ( long "watch"
+      <> help "Re-run when files are changed" )
 
 main :: IO ()
 main = do
   options <- execParser $ info (opts <**> helper) $ mconcat
     [ fullDesc
     , progDesc "Run cucumber tests in daml script"
-    , header "daml-cucumber cli tool"
+    , header $ "Welcome to daml-cucumber " <> showVersion version <> " by Obsidian Systems"
     ]
-  runTestSuite
-    (_opts_directory options)
-    (_opts_featureFile options)
-    (_opts_damlSourceDir options)
-    (_opts_allowMissing options)
-    (_opts_generateOnly options)
-    (_opts_verbose options)
+  start options

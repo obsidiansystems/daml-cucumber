@@ -1,3 +1,4 @@
+{-# Language RankNTypes #-}
 module Daml.Cucumber.LSP
   ( runTestLspSession
   ) where
@@ -6,6 +7,9 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
+import Control.Monad.Log
+import Daml.Cucumber.Log
+import Daml.Cucumber.Utils
 import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString.Char8 as BS
@@ -21,6 +25,7 @@ import NeatInterpolation (text)
 import Reflex hiding (Request, Response)
 import Reflex.Host.Headless
 import Reflex.Process
+import System.Directory
 import System.Posix.Process
 import System.Posix.Types
 import qualified System.Process as Proc
@@ -43,6 +48,10 @@ data TestResult
   = TestResultRan RanTest
   | TestResultDoesn'tCompile Text
   deriving (Eq, Ord, Show)
+
+getCompileError :: TestResult -> Maybe Text
+getCompileError (TestResultDoesn'tCompile reason) = Just reason
+getCompileError _ = Nothing
 
 getTracesAndErrors :: TestResult -> ([Text], Text)
 getTracesAndErrors (TestResultRan (RanTest traces errors)) = (traces, errors)
@@ -94,7 +103,7 @@ instance FromJSON TestResponse where
         T.drop 1 . T.dropWhile (/= '=') . T.dropWhile (/= '&') <$> params .: "uri"
 
       extractData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-code transaction")] :: Tag Text))
-      extractNoteData = innerText . dropWhile (~/= (TagOpen "div" [("class", "da-hl-warning")] :: Tag Text))
+      extractNoteData = innerText . dropWhile (~/= (TagOpen "span" [("class", "da-hl-warning")] :: Tag Text))
 
 getRPC :: Response -> Maybe (RPC Value)
 getRPC (Notification rpc) = Just rpc
@@ -111,20 +120,28 @@ setCwd fp cp = cp { Proc.cwd = Just fp }
 mkTestUri :: FilePath -> Text -> Text
 mkTestUri fp funcName = "daml://compiler?file=" <> (T.replace "/" "%2F" $ T.pack fp) <> "&top-level-decl=" <> funcName
 
-runTestLspSession :: FilePath -> FilePath -> Bool -> [Text] -> IO (Either Text (Map Text ([Text], Text)))
+runTestLspSession
+  :: FilePath
+  -> FilePath
+  -> Bool
+  -> [Text]
+  -> Log IO (Either Text (Map Text ([Text], Text)))
 runTestLspSession cwd filepath verbose testNames = do
-  putStrLn $ "Generated test file is " <> filepath
-  putStrLn $ "Running lsp session in " <> cwd <> " ..."
-  pid <- getProcessID
+  logDebug $ "Generated test file is " <> T.pack filepath
+  logDebug $ "Running lsp session in " <> T.pack cwd <> " ..."
+  cwd' <- liftIO $ canonicalizePath cwd
+  filepath' <- liftIO $ canonicalizePath filepath
+  pid <- liftIO getProcessID
   let
-    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath tname)) $ zip [1..] testNames
+    reqs = fmap (\(reqId, tname) -> (tname, Request reqId $ mkDidOpenUri $ mkTestUri filepath' tname)) $ zip [1..] testNames
     allReqs = ("Init", Request 0 (mkInitPayload pid)) : reqs
 
-  testResults <- runHeadlessApp $ do
+  logHandler <- askLogHandler
+  testResults <- liftIO $ runHeadlessApp $ do
     pb <- getPostBuild
 
     rec
-      DamlIde currentResults currentResponses failed <- damlIde cwd verbose sendReq
+      DamlIde currentResults currentResponses failed <- damlIde logHandler cwd' verbose sendReq
 
       let
         getNextRequest :: [(Text, Request)] -> [Response] -> Maybe Request
@@ -148,14 +165,13 @@ runTestLspSession cwd filepath verbose testNames = do
           True -> Just a
           False -> Nothing
 
-    pure $ leftmost [ fmap Right $ bounce ((== length reqs) . length) $ updated $ Set.toList <$> currentResults
+      newResults = updated $ Set.toList <$> currentResults
+
+    pure $ leftmost [ fmap Right $ bounce ((== length reqs) . length) $ newResults
+                    , fmap (Left . ("Daml doesn't compile (are you missing a Default instance for your context type?):\n" <>)) $  bounce (not . T.null) $ (T.intercalate "\n" . catMaybes . fmap (getCompileError . testResponseResult)) <$> newResults
                     , Left <$> failed
                     ]
   pure $ fmap (mconcat . fmap (\(TestResponse name result) -> Map.singleton name $ getTracesAndErrors result)) testResults
-
-safeHead :: [a] -> Maybe a
-safeHead (a:_) = Just a
-safeHead _ = Nothing
 
 tShow :: Show a => a -> Text
 tShow = T.pack . show
@@ -228,16 +244,31 @@ data DamlIde t = DamlIde
   , damlIde_exit :: Event t Text
   }
 
-damlIde :: (PostBuild t m, MonadHold t m, MonadFix m, MonadIO m, MonadIO (Performable m), PerformEvent t m, TriggerEvent t m, Reflex t) => FilePath -> Bool -> Event t Request -> m (DamlIde t)
-damlIde cwd verbose rpcEvent = do
+damlIde
+  :: ( PostBuild t m
+     , MonadHold t m
+     , MonadFix m
+     , MonadIO m
+     , MonadIO (Performable m)
+     , PerformEvent t m
+     , TriggerEvent t m
+     , Reflex t
+     )
+  => Handler IO (WithSeverity Text)
+  -> FilePath
+  -> Bool
+  -> Event t Request
+  -> m (DamlIde t)
+damlIde logHandler cwd verbose rpcEvent = do
   let
     damlProc = setCwd cwd $ Proc.proc damlPath ["ide", "--debug", "--scenarios", "yes"]
     sendPipe = fmap (SendPipe_Message . T.encodeUtf8 . makeReq . wrapRequest) rpcEvent
+    logDebug' = flip runLoggingT logHandler . logDebug . T.decodeUtf8
 
   process <- createProcess damlProc (ProcessConfig sendPipe never)
   when verbose $ do
-    performEvent_ $ ffor (_process_stdout process) $ liftIO . print
-    performEvent_ $ ffor (_process_stderr process) $ liftIO . print
+    performEvent_ $ ffor (_process_stdout process) $ liftIO . logDebug'
+    performEvent_ $ ffor (_process_stderr process) $ liftIO . logDebug'
 
   let
     errorOutput = T.decodeUtf8 <$> _process_stderr process

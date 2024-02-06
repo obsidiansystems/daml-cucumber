@@ -1,16 +1,15 @@
 module Test where
 
 import Cucumber
-import DA.Action
 import DA.Action.State.Class
-import DA.Either
-import DA.Exception
 import DA.Foldable
-import DA.Optional
-import DA.Set
-import DA.Stack
 import Daml.Script
-import StateT
+
+data BasicContext = BasicContext with
+  party1 : Optional Party
+
+instance Default BasicContext where
+  def = BasicContext None
 
 template X
   with
@@ -18,36 +17,24 @@ template X
   where
     signatory owner
 
-main : Script [Message]
+main : Script ()
 main = do
-  (_, ctx) <- runCucumber allTests
-  pure ctx.results
+  runCucumber allTests
 
-allTests: Cucumber ()
+allTests: Cucumber BasicContext ()
 allTests = do
   testStepsCanOnlyBeDefinedOnce
   testMultipleScenariosInOneTest
   testScenarioOutlineByJustEnumerating
 
-testStepsCanOnlyBeDefinedOnce: Cucumber ()
+testStepsCanOnlyBeDefinedOnce: Cucumber BasicContext ()
 testStepsCanOnlyBeDefinedOnce = do
-  step Given "a party"
   liftScript $ allocateParty "alice"
-  step Given "a party"
-  step When "the party creates contract X"
   parties <- liftScript listKnownParties
-  step Then "Contract X is created"
+  pure ()
 
-testMultipleScenariosInOneTest: Cucumber ()
+testMultipleScenariosInOneTest: Cucumber BasicContext ()
 testMultipleScenariosInOneTest = do
-  scenario' "A something that can be tested"
-   -- ^ Note you can optionally define the Scenario if you wanna, though you don't have to
-  step Given "a guy does a thing"
-  step Then "well he did a thing"
-
-  scenario' "Something else that can be tested"
-  step Given "this other guy I know"
-  step Then "he also did something"
   pure ()
 
 data AnimalCategory
@@ -80,80 +67,97 @@ instance Show AnimalType where
     Bird -> "bird"
     NotToaster -> "toaster"
 
+type Test a = Cucumber BasicContext a
+
 -- Given there is a animal and a type
-a: Cucumber ()
+a: Test ()
 a = do
   pure ()
 
+-- Then the <animal-category> is pretty cool I guess
+bb : Text -> Test ()
+bb _ = do
+  pure ()
+
+-- And the <animal-category> is a <animal-type>
+cc : Text -> Text -> Test ()
+cc _ _ = do
+  pure ()
+
+
 -- Then the Dog is pretty cool I guess
-b: Cucumber ()
+b: Test ()
 b = do
   pure ()
 
 -- And the Cat is a toaster
-c: Cucumber ()
+c: Cucumber BasicContext ()
 c = do
   pure ()
 
 -- And the Dog is a mammal
-d: Cucumber ()
+d: Cucumber BasicContext ()
 d = do
   pure ()
 
 -- Given a guy does a thing
-testScenarioOutlineByJustEnumerating: Cucumber ()
+testScenarioOutlineByJustEnumerating: Cucumber BasicContext ()
 testScenarioOutlineByJustEnumerating = do
-  step Given "there is a animal and a animal type"
   forA_ categories $ \category -> do
     forA_ types $ \t ->  testSingleCase category t
-    step Then $ "the " <> show category <> " is pretty cool I guess"
   where
     categories = [minBound .. maxBound]
     types = [minBound .. maxBound]
 
 -- Given there is a document and a type
-givenAAnimalType : Cucumber ()
+givenAAnimalType : Cucumber BasicContext ()
 givenAAnimalType = pure ()
 
 -- Given this other guy I know
-givenThisOtherGuyIKnow : Cucumber ()
+givenThisOtherGuyIKnow : Cucumber BasicContext ()
 givenThisOtherGuyIKnow = pure ()
 
 -- Given a party
-givenAParty: Cucumber Party
-givenAParty = liftScript $ allocateParty "alice"
+givenAParty: Cucumber BasicContext ()
+givenAParty = do
+  p <- liftScript $ allocateParty "alice"
+  put $ BasicContext (Some p)
+
+withParty1 f = do
+  malice <- gets party1
+  case malice of
+    Some alice -> f alice
+    _ -> error "Missing party1"
 
 -- When the party creates contract X
-whenThePartyCreatesContact : Cucumber (ContractId X)
-whenThePartyCreatesContact = liftScript $ do
-  [alice] <- listKnownParties
-  submit alice.party $ createCmd X with owner = alice.party
+whenThePartyCreatesContact : Cucumber BasicContext (ContractId X)
+whenThePartyCreatesContact = withParty1 $ \alice ->
+  liftScript $ submit alice $ createCmd X with owner = alice
 
 -- Then Contract X is created
-thenContractIsCreated : Cucumber ()
-thenContractIsCreated = liftScript $ do
-  [alice] <- listKnownParties
-  contracts <- query @X alice.party
+thenContractIsCreated : Cucumber BasicContext ()
+thenContractIsCreated = withParty1 $ \alice -> liftScript $ do
+  contracts <- query @X alice
   assertMsg "Must have exactly one contract" $ Prelude.length contracts == 1
 
 -- Then he also did something
-thenHeAlsoDidSomething : Cucumber ()
+thenHeAlsoDidSomething : Cucumber BasicContext ()
 thenHeAlsoDidSomething = pure ()
 
 -- Then the Dog Mammal is pretty cool I guess
-thenTheDogMammalIsCool : Cucumber ()
+thenTheDogMammalIsCool : Cucumber BasicContext ()
 thenTheDogMammalIsCool = pure ()
 
 -- Then the Cat is pretty cool I guess
-thenWait : Cucumber ()
+thenWait : Cucumber BasicContext ()
 thenWait = pure ()
 
 -- Then this isn't implemented
-thenNotImplemented : Cucumber ()
+thenNotImplemented : Cucumber BasicContext ()
 thenNotImplemented = pure ()
 
 -- Then well he did a thing
-thenWellHeDidAThing : Cucumber ()
+thenWellHeDidAThing : Cucumber BasicContext ()
 thenWellHeDidAThing = do
   liftScript $ do
     allocatePartyWithHint "X" (PartyIdHint "X")
@@ -161,13 +165,13 @@ thenWellHeDidAThing = do
   pure ()
 
 -- And the Parrot is a Salad
-andTheIden : Cucumber ()
+andTheIden : Cucumber BasicContext ()
 andTheIden = pure ()
 
 -- And the Cat is a Bird
-isPdf : Cucumber ()
+isPdf : Cucumber BasicContext ()
 isPdf = pure ()
 
-testSingleCase: AnimalCategory -> AnimalType -> Cucumber ()
+testSingleCase: AnimalCategory -> AnimalType -> Cucumber BasicContext ()
 testSingleCase dc dt = do
-  step And $ "the " <> show dc <> " is a " <> show dt
+  pure ()

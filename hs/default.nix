@@ -20,11 +20,13 @@ let
       reflex = self.callCabal2nix "reflex" (pkgs.hackGet ./dep/reflex) {};
       neat-interpolation = haskellLib.doJailbreak super.neat-interpolation;
       coquina = haskellLib.markUnbroken (haskellLib.doJailbreak super.coquina);
+      logging-effect = self.callHackage "logging-effect" "1.4.0" {};
       daml-cucumber = haskellLib.overrideCabal
         (self.callCabal2nix "daml-cucumber" src {})
         (drv: {
           librarySystemDepends = (drv.librarySystemDepends or []) ++ [ nix-daml-sdk.sdk ];
         });
+      logging-effect-colors = self.callHackage "logging-effect-colors" "0.1.0.0" {};
     };
   };
 in

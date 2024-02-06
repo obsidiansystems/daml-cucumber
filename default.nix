@@ -29,16 +29,28 @@ let
         '';
       };
       damlTest = pkgs.stdenvNoCC.mkDerivation {
-        name = "daml-cucumber-test";
+        name = "daml-cucumber-test-${version}";
         src = pkgs.lib.cleanSource ./.;
         buildInputs = [ damlSdk.jdk damlSdk.sdk ];
         buildPhase = ''
-          cp ${damlLib}/dist.dar test/dist.dar
           substituteInPlace test/daml.yaml \
-            --replace "2.6.5" ${version} \
-            --replace "../daml/.daml/dist/daml-cucumber-0.1.0.0.dar" dist.dar
-          ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --directory ./test --source ./test/daml --feature-file ./test/features.feature
+            --replace "2.6.5" ${version}
+          ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --source ./test --features ./test/features.feature
           cd test && ${damlSdk.sdk}/bin/daml test > test-result
+        '';
+        installPhase = ''
+          cat test-result > $out
+        '';
+      };
+      damlExample = pkgs.stdenvNoCC.mkDerivation {
+        name = "daml-cucumber-example-${version}";
+        src = pkgs.lib.cleanSource ./.;
+        buildInputs = [ damlSdk.jdk damlSdk.sdk ];
+        buildPhase = ''
+          substituteInPlace example/daml.yaml \
+            --replace "2.6.5" ${version}
+          ${hsBuild.daml-cucumber}/bin/daml-cucumber --generate-only --source ./example --features ./example
+          cd example && ${damlSdk.sdk}/bin/daml test > test-result
         '';
         installPhase = ''
           cat test-result > $out
@@ -88,8 +100,7 @@ let
     '');
   in pkgs.writeShellScriptBin "docker-push-generated" (builtins.concatStringsSep "\n" (loadContainers ++ pushContainers));
 in {
-  inherit isDirty rev;
-  container = outputs.daml-265.container;
+  inherit isDirty rev outputs;
   recurseForDerivations = true;
   pushScript = genScriptForPush;
-} // outputs
+}

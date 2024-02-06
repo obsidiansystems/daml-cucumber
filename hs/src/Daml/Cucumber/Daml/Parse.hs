@@ -1,10 +1,17 @@
 module Daml.Cucumber.Daml.Parse
   ( DamlFile(..)
   , Definition(..)
+  , Type(..)
+  , TypeSig(..)
+  , TypeSynonym(..)
   , parseDamlFile
   ) where
 
+import Reflex (fmapMaybe)
+import Control.Lens
 import Control.Monad
+import Control.Monad.IO.Class
+import Control.Applicative
 import Daml.Cucumber.Daml.Parser
 import Daml.Cucumber.Daml.Tokenizer
 import Daml.Cucumber.Types
@@ -13,6 +20,7 @@ import qualified Data.Text as T
 
 data DamlFile = DamlFile
   { damlFilePath :: FilePath
+  , damlFileTypeSynonyms :: [TypeSynonym]
   , damlFileDefinitions :: [Definition]
   }
 
@@ -29,13 +37,27 @@ data FunctionType = FunctionType
   }
   deriving (Eq, Show)
 
-data Type = Type Text [Text]
+data TypeSynonym =
+  TypeSynonym TypeSig TypeSig
   deriving (Eq, Show)
+
+data Type = Type Text [Text]
+  deriving (Eq, Ord, Show)
 
 data TypeSig
   = Reg Type
   | Func FunctionType
   deriving (Eq, Show)
+
+-- | A single element of DAML AST
+data DamlNode
+  = DamlDefinition Definition
+  | DamlMultilineComment Text
+  | DamlTypeSynonym TypeSynonym
+  | DamlComment Text
+  deriving (Eq, Show)
+
+makePrisms ''DamlNode
 
 parseType :: Text -> Parser Type
 parseType name = do
@@ -67,22 +89,38 @@ parseTypeSig name = do
         Just t -> (t :) <$> getSig
         Nothing -> pure []
 
+parseMultiLine :: Parser Text
+parseMultiLine = do
+  _ <- accept (== BeginMultiLine)
+  tokens <- takeUntil (== EndMultiLine)
+  pure $ tokensToText tokens
+
+parseTypeSynonym :: Parser TypeSynonym
+parseTypeSynonym = do
+  _ <- accept (== TypeKeyword)
+  from <- parseTypeSig ""
+  _ <- accept (== Equals)
+  to <- parseTypeSig ""
+  pure $ TypeSynonym from to
+
+tokensToText :: [Token] -> Text
+tokensToText = T.intercalate " " . fmap tokenToText
+
 parseComment :: Parser [Token]
 parseComment = do
   _ <- accept (== BeginComment)
-  tokens <- getTheComment
-  pure tokens
+  takeUntil (==LineBreak)
 
-getTheComment :: Parser [Token]
-getTheComment = do
+takeUntil :: (Token -> Bool) -> Parser [Token]
+takeUntil f = do
   token <- peek
-  case token of
-    LineBreak -> do
+  case f token of
+    True -> do
       eat
       pure []
-    _ -> do
+    False -> do
       eat
-      (token :) <$> getTheComment
+      (token :) <$> takeUntil f
 
 parseStepBinding :: Parser Step
 parseStepBinding = do
@@ -102,8 +140,6 @@ parseStepBinding = do
         Just kw -> pure $ Step kw (tokensToText rest)
         Nothing -> fail ""
     _ -> fail ""
-  where
-    tokensToText x = T.intercalate " " $ fmap tokenToText x
 
 parseDefinition :: Parser Definition
 parseDefinition = do
@@ -117,6 +153,21 @@ parseFileDefinitions :: FilePath -> IO (Maybe [Definition])
 parseFileDefinitions path = do
   parseFile path $ parseAll parseDefinition
 
-parseDamlFile :: FilePath -> IO (Maybe DamlFile)
-parseDamlFile path =
-  fmap (DamlFile path) <$> parseFileDefinitions path
+parseDamlNode :: Parser DamlNode
+parseDamlNode =
+  (DamlMultilineComment <$> parseMultiLine)
+  <|> (DamlTypeSynonym <$> parseTypeSynonym)
+  <|> (DamlDefinition <$> parseDefinition)
+  <|> (DamlComment . tokensToText <$> parseComment)
+
+parseDamlNodes :: MonadIO m => FilePath -> m (Maybe [DamlNode])
+parseDamlNodes path = liftIO $ do
+  parseFile path $ parseAll parseDamlNode
+
+parseDamlFile :: MonadIO m => FilePath -> m (Maybe DamlFile)
+parseDamlFile path = do
+  nodes <- parseDamlNodes path
+  let
+    defs = nodes >>= pure . fmapMaybe (preview _DamlDefinition)
+    typeSyns = nodes >>= pure . fmapMaybe (preview _DamlTypeSynonym)
+  pure $ DamlFile path <$> typeSyns <*> defs
