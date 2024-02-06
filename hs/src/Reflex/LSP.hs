@@ -1,10 +1,13 @@
+{-# Language QuantifiedConstraints #-}
 module Reflex.LSP where
 
 import Prelude hiding (log)
 
+import Control.Applicative.Combinators
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
+import Control.Lens ((^.), has)
 import Control.Monad.IO.Class
 import Data.Constraint.Extras.TH
 import Data.Dependent.Sum
@@ -12,6 +15,7 @@ import Data.Functor.Identity
 import Data.Set (Set)
 import Data.Some
 import Data.Text (Text)
+import Language.LSP.Protocol.Lens qualified as L
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types hiding (Hover, SemanticTokens)
 import Language.LSP.Protocol.Types qualified as LSP
@@ -212,6 +216,25 @@ data Capabilities a where
 
 deriving instance Show a => Show (Capabilities a)
 
+-- | Waits for diagnostics to be published and returns them.
+--
+-- TODO: This was implemented because some LSPs don't respond if there are no
+-- diagnostics results. However, it's possible that might get the progress end
+-- message for other reasons, unrelated to this request. Maybe a timeout would
+-- be better?
+waitForDiagnosticsIfAny :: Session [Diagnostic]
+waitForDiagnosticsIfAny = do
+  diags <- skipManyTill anyMessage $ diagnostics <|> progressEnd
+  return diags
+  where
+    diagnostics = do
+      diagsNot <- message LSP.SMethod_TextDocumentPublishDiagnostics
+      pure $ diagsNot ^. L.params . L.diagnostics
+    progressEnd = do
+      x <- message LSP.SMethod_Progress
+      guard $ has (L.params . L.value . _workDoneProgressEnd) x
+      pure []
+
 handleLsp :: Some Lsp -> Session (DSum Lsp Identity)
 handleLsp (Some req) = (req :=>) . Identity <$> case req of
   Lsp_Initialize a -> case a of
@@ -228,7 +251,7 @@ handleLsp (Some req) = (req :=>) . Identity <$> case req of
   Lsp_Symbols symbols -> case symbols of
     GetDocumentSymbols a -> getDocumentSymbols a
   Lsp_Diagnostics diag -> case diag of
-    WaitForDiagnostics -> waitForDiagnostics
+    WaitForDiagnostics -> waitForDiagnosticsIfAny
     WaitForDiagnosticsSource a -> waitForDiagnosticsSource a
     NoDiagnostics -> noDiagnostics
     GetCurrentDiagnostics a -> getCurrentDiagnostics a
