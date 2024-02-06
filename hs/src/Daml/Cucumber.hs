@@ -22,9 +22,11 @@ import Daml.Cucumber.Types
 import Daml.Cucumber.Utils
 import Data.Char
 import Data.Foldable
+import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Data.String (IsString)
@@ -183,18 +185,24 @@ data Test = Test
   }
 
 getUsedContextTypes :: DamlFile -> Set (FilePath, Text)
-getUsedContextTypes (DamlFile fp definitions) =
-  foldr getContextTypeUse mempty definitions
+getUsedContextTypes (DamlFile fp typesyns definitions) =
+  foldr getContextTypeUse mempty (fmap getDefinitionType definitions <> fmap getTypeSynonymType typesyns)
   where
-    getContextTypeUse (Definition _ _ ts) b = case ts of
+    getContextTypeUse t b = case t of
       (Reg (Type "Cucumber" (context:_))) -> Set.insert (fp, context) b
       _ -> b
+
+getDefinitionType :: Definition -> TypeSig
+getDefinitionType (Definition _ _ ts) = ts
+
+getTypeSynonymType :: TypeSynonym -> TypeSig
+getTypeSynonymType (TypeSynonym _ ts) = ts
 
 getContextTypeDefinitionFile :: Text -> [DamlFile] -> Maybe FilePath
 getContextTypeDefinitionFile typeName files =
   safeHead $ fmap damlFilePath $ filter filterFunc files
   where
-    filterFunc (DamlFile _ defs) = any isDefForType defs
+    filterFunc (DamlFile _ typesyns defs) = any isDefForType defs
 
     isDefForType :: Definition -> Bool
     isDefForType (Definition name _ _) | typeName == name = True
@@ -344,7 +352,7 @@ data StepReport = StepSucceeded | StepFailed Text | StepDidNotRun
   deriving (Eq)
 
 -- | We aren't using a Map here to preserve the ordering
-type Report = [(Feature, [(Scenario, [(Step, StepReport)])])]
+type Report = [(Feature, [(Either Scenario Outline, [(Step, StepReport)])])]
 
 report
   :: Set Step
@@ -354,35 +362,52 @@ report
 report definedSteps testResults features =
   let
     filterScenarios = filter (isScenarioRunnable definedSteps)
-    scenarioMap = map (\f -> (f, filterScenarios $ _feature_scenarios f)) features
-    resultMap = fmap (fmap (\scenarios -> map (\s -> (s, getResults s)) scenarios)) scenarioMap
-  in resultMap
+    resultMap = ffor features $ \f -> 
+      ( f
+      , let scenarios = filterScenarios (_feature_scenarios f)
+            scenariosMap = fmap (\s -> (Left s, getScenarioResults s)) scenarios
+            outlines = filter (isScenarioRunnable definedSteps . _outline_scenario) (_feature_outlines f)
+            outlinesMap = mconcat $ fmap (\o -> (,) (Right o) <$> getOutlineResults o) outlines
+         in scenariosMap <> outlinesMap
+      )
+   in resultMap
   where
-    getResults :: Scenario -> [(Step, StepReport)]
-    getResults s =
+    getScenarioResults :: Scenario -> [(Step, StepReport)]
+    getScenarioResults = getResults id id getScenarioFunctionName
+
+    getOutlineResults :: Outline -> [[(Step, StepReport)]]
+    getOutlineResults outline = mconcat $ 
+      ffor (_outline_examples outline) $ \ex -> do
+        (headerRow, values) <- maybeToList $ List.uncons (_examples_table ex)
+        ffor (zip [(1::Int)..] values) $ \(index, vals) ->
+          let formatStep = foldr (.) id $ fmap (\(h, v) step -> step { _step_body = T.replace ("<"<>h<>">") v (_step_body step) }) $ zip headerRow vals
+           in getResults formatStep (_outline_scenario . snd) (uncurry getOutlineRowFunctionName) (index, outline)
+
+    getResults :: (Step -> Step) -> (a -> Scenario) -> (a -> Text) -> a -> [(Step, StepReport)]
+    getResults formatStep getScenario getFunctionName a =
       let
-        Scenario _ steps = s
-        fname = getScenarioFunctionName s
+        Scenario _ steps = getScenario a
+        fname = getFunctionName a
         errors = maybe "" snd $ Map.lookup fname testResults
-        resultMap = scenarioResultMap s
+        resultMap = scenarioResultMap a
         getResult = flip Map.lookup resultMap
       in
-        flip map steps $ \stp -> (stp,) $
+        flip map steps $ \stp -> (formatStep stp,) $
           case getResult (T.pack $ prettyPrintStep stp) of
             Just True -> StepSucceeded
             Just False -> StepFailed errors
             Nothing -> StepDidNotRun
-    scenarioResultMap :: Scenario -> Map Text Bool
-    scenarioResultMap s =
-      Map.fromList $
-        maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst) $
-          Map.lookup (getScenarioFunctionName s) testResults
+      where
+       scenarioResultMap s =
+         Map.fromList $
+           maybe [] (collateStepResults . fmap (T.drop (T.length "step:")) . filter (T.isPrefixOf "step:") . fst) $
+             Map.lookup (getFunctionName s) testResults
 
 renderReport :: Report -> Text
 renderReport r = T.unlines $ fmap (T.unlines . fmap T.unlines) $
   ffor r $ \(f, ss) ->
     ([_feature_name f] :) $ ffor ss $ \(s, stps) ->
-      (("  Scenario: " <> _scenario_name s) :) $ ffor stps $ \(stp, result) ->
+      (("  Scenario: " <> _scenario_name (either id _outline_scenario s)) :) $ ffor stps $ \(stp, result) ->
         ("    " <> (T.pack $ show $ _step_keyword stp) <> " " <> _step_body stp) <> renderResult result
   where
     renderResult = (" => " <>) . \case
@@ -449,7 +474,34 @@ generateDamlSource definedSteps stepMapping features = do
       let
         sname = getScenarioFunctionName scenario
       modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames) (_scenario_name scenario)
+    for_ (filter (isScenarioRunnable definedSteps . _outline_scenario) $ _feature_outlines feature) $ \outline@(Outline examples scenario) -> do
+      for_ examples $ \(Examples name table) -> do
+        case table of
+          [] -> error "Expected at least the header row"
+          (headerRow : values) -> do
+            let valuesMap = Map.fromList . zip headerRow <$> values
+            for_ (zip [(1::Int)..] valuesMap) $ \(index, value) -> do
+              fnames <- fmap mconcat $ for (_scenario_steps scenario) $ \step -> do
+                case Map.lookup step stepMapping of
+                  Nothing -> pure []
+                  Just (StepFunc file fname) -> do
+                    let parameterNames = parseStepParameterNames (_step_body step)
+                        parameters = fmap (T.pack . show) $ catMaybes $ flip Map.lookup value <$> parameterNames
+                        fnameAndArgs = T.unwords (fname : parameters)
+                    pure [debug ("step:" <> T.pack (prettyPrintStep step)), fnameAndArgs, debug "step:pass"]
+              let sname = getOutlineRowFunctionName index outline
+              modify $ addFunction $ DamlFunc sname (debug ("scenario:"<> sname) : fnames) (_scenario_name scenario)
+      pure ()
   pure ()
+
+-- | Parse parameters in Scenario Outline Step
+parseStepParameterNames :: Text -> [Text]
+parseStepParameterNames str = do
+  guard $ not $ T.null str
+  let tagStart = T.drop 1 $ T.dropWhile (/= '<') str
+  guard $ not $ T.null tagStart
+  let tag = T.takeWhile (/= '>') tagStart
+  tag : parseStepParameterNames (T.drop (T.length tag) tagStart)
 
 debug :: Text -> Text
 debug n = "debug \"" <> n <> "\""
@@ -457,6 +509,10 @@ debug n = "debug \"" <> n <> "\""
 getScenarioFunctionName :: Scenario -> Text
 getScenarioFunctionName =
   T.pack . toCamel . fromWords . unwords . fmap (filter isAlphaNum) . words . T.unpack . _scenario_name
+
+getOutlineRowFunctionName :: Int -> Outline -> Text
+getOutlineRowFunctionName rowIndex outline =
+  mconcat [getScenarioFunctionName (_outline_scenario outline), T.pack (show rowIndex)]
 
 writeDamlScript :: MonadIO m => FilePath -> DamlScript -> m ()
 writeDamlScript path state = liftIO $ do
@@ -496,8 +552,11 @@ prettyPrintStep :: Step -> String
 prettyPrintStep (Step key body) = show key <> " " <> T.unpack body
 
 getAllRequiredFeatureSteps :: Feature -> Set Step
-getAllRequiredFeatureSteps =
-  Set.fromList . mconcat . fmap _scenario_steps . _feature_scenarios
+getAllRequiredFeatureSteps f =
+  Set.fromList $ mconcat $ mconcat
+    [ _scenario_steps <$> _feature_scenarios f
+    , _scenario_steps . _outline_scenario <$> _feature_outlines f
+    ]
 
 getAllDefinedSteps :: [Definition] -> Set Step
 getAllDefinedSteps = Set.fromList . fmapMaybe definitionStep

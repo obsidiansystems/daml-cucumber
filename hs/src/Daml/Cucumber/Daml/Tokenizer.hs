@@ -10,12 +10,15 @@ import qualified Data.Text as T
 data Token
   = Identifier Text
   | BeginComment
+  | BeginMultiLine
+  | EndMultiLine
   | TypeArrow
   | Arrow
   | Do
   | Equals
   | Colon
   | LineBreak
+  | TypeKeyword
   deriving (Eq, Show)
 
 tokenToText :: Token -> Text
@@ -27,7 +30,10 @@ tokenToText = \case
   Do -> "do"
   Equals-> "="
   Colon-> ":"
-  LineBreak-> "\n" -- TODO do we care about unix/linux
+  LineBreak -> "\n" -- TODO do we care about maintaining windows style linebreaks
+  BeginMultiLine -> "{-"
+  EndMultiLine -> "-}"
+  TypeKeyword -> "type"
 
 tokenize :: Text -> [Token]
 tokenize input
@@ -43,9 +49,12 @@ tokenize input
   | T.isPrefixOf "=" token = Equals : tokenize (T.drop 1 token)
   | T.isPrefixOf "->" token = Arrow : tokenize (T.drop 2 token)
   | T.isPrefixOf "=>" token = TypeArrow : tokenize (T.drop 2 token)
+  | T.isPrefixOf "{-" token = BeginMultiLine : tokenize (T.drop 2 token)
+  | T.isPrefixOf "-}" token = EndMultiLine : tokenize (T.drop 2 token)
   | otherwise = case ident of
       "" -> tokenize $ T.drop 1 token
       "do" -> Do : tokenize rest
+      "type" -> TypeKeyword : tokenize rest
       _ -> Identifier ident : tokenize rest
   where
     token = T.dropWhile (flip elem defaultSpaces) input
