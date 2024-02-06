@@ -24,6 +24,7 @@ Feature: Asset
   Scenario Outline: Issue asset <name> and transfer to <party>
 
     Given an asset called <name>
+    And a party called <party>
     When the issuer transfers the asset called <name> to <party>
     Then <party> now has the asset called <name>
 
