@@ -9,13 +9,13 @@ Feature: Example
     Given this other guy I know
     Then he also did something
 
-  Scenario Outline:  Linking a animal to an type
+  Scenario Outline: Linking a animal to an type
     Given there is a animal and a type
-    And the <animal-category> is a <animal type>
+    And the <animal-category> is a <animal-type>
     Then the <animal-category> is pretty cool I guess
 
     Examples: animals
-      | animal category                 | animal type  |
+      | animal-category                 | animal-type  |
       | Dog                                | mammal           |
       | Dog                                | bird           |
       | Dog                                | salad          |
