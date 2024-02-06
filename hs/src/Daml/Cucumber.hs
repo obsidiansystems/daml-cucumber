@@ -536,8 +536,11 @@ prettyPrintStep :: Step -> String
 prettyPrintStep (Step key body) = show key <> " " <> T.unpack body
 
 getAllRequiredFeatureSteps :: Feature -> Set Step
-getAllRequiredFeatureSteps =
-  Set.fromList . mconcat . fmap _scenario_steps . _feature_scenarios
+getAllRequiredFeatureSteps f =
+  Set.fromList $ mconcat $ mconcat
+    [ _scenario_steps <$> _feature_scenarios f
+    , _scenario_steps . _outline_scenario <$> _feature_outlines f
+    ]
 
 getAllDefinedSteps :: [Definition] -> Set Step
 getAllDefinedSteps = Set.fromList . fmapMaybe definitionStep
