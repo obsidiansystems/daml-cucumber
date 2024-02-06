@@ -16,6 +16,12 @@ category:        Testing
 build-type:      Simple
 extra-doc-files: CHANGELOG.md
 
+flag use-static-which
+  description: Use System.Which.staticWhich to determine the path
+    to the daml executable at compile time.
+  default: False
+  manual: True
+
 common warnings
   ghc-options: -Wall
 
@@ -60,12 +66,17 @@ library
     , temporary              >=1.3     && <1.4
     , text                   >=1.2.4   && <1.3
     , unix                   >=2.7.2   && <2.8
-    , which                  >=0.2     && <0.3
     , yaml                   >=0.11    && <0.12
+
+  if flag(use-static-which)
+    build-depends:
+      which                  >=0.2     && <0.3
+    cpp-options:      -DSTATIC_WHICH
 
   hs-source-dirs:     src
   default-language:   Haskell2010
   default-extensions:
+    CPP
     DeriveGeneric
     FlexibleContexts
     GeneralizedNewtypeDeriving

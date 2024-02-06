@@ -29,8 +29,16 @@ import System.Directory
 import System.Posix.Process
 import System.Posix.Types
 import qualified System.Process as Proc
-import System.Which
 import Text.HTML.TagSoup
+
+#ifdef STATIC_WHICH
+import System.Which
+damlPath :: FilePath
+damlPath = $(staticWhich "daml")
+#else
+damlPath :: FilePath
+damlPath = "daml"
+#endif
 
 data RanTest = RanTest
   { ranTestTraces :: [Text]
@@ -234,9 +242,6 @@ instance FromJSON Response where
 
       parseNotification o = do
         Notification <$> parseRPC o
-
-damlPath :: FilePath
-damlPath = $(staticWhich "daml")
 
 data DamlIde t = DamlIde
   { damlIde_testResponses :: Dynamic t (Set TestResponse)

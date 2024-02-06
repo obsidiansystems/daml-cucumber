@@ -1,0 +1,4 @@
+packages:
+  hs/
+
+allow-newer: abacate:*, reflex-process:*, reflex-vty:*
