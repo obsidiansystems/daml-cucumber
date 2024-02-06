@@ -46,7 +46,7 @@ data Lsp :: * -> * where
 deriving instance Show a => Show (Lsp a)
 
 data Initialize :: * -> * where
-  -- ^ Returns the initialize response that was received from the server. The
+  -- | Returns the initialize response that was received from the server. The
   -- initialize requests and responses are not included the session, so if you
   -- need to test it use this.
   InitializeResponse :: Initialize (LSP.TResponseMessage 'LSP.Method_Initialize)
