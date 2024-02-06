@@ -36,14 +36,3 @@ Feature: Example
       | Caesar                  | bird           |
       | Caesar                  | salad          |
       | Caesar                  | toaster           |
-
-   # We currently don't turn Outlines into multiple scenarios so I am gonna copy-pasta some here
-   Scenario:  Linking a animal to an type 1
-    Given there is a animal and a type
-    And the Dog is a mammal
-    Then the Dog is pretty cool I guess
-
-   Scenario:  Linking a animal to an type 2
-    Given there is a animal and a type
-    And the Cat is a toaster
-    Then the Cat is pretty cool I guess
