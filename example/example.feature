@@ -21,6 +21,19 @@ Feature: Asset
     When the owner of the asset tries to give it to themself
     Then the asset's id does not change
 
+  Scenario Outline: Issue asset <name> and transfer to <party>
+
+    Given an asset called <name>
+    When the issuer transfers the asset called <name> to <party>
+    Then <party> now has the asset called <name>
+
+    Examples: assets and parties
+      | name | party |
+      | Car  | alice |
+      | Boat | bob   |
+      | Hat  | bob   |
+      | Shoe | alice |
+
   # Scenario: An asset can be transferred
   #   Given an asset
   #   Given a third party
