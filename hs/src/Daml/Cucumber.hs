@@ -291,9 +291,27 @@ runTestSuite opts = do
                 toStepResults b s = if b
                   then map (,StepSucceeded) (_scenario_steps s)
                   else map (,StepFailed "") (_scenario_steps s)
-                results :: Report = map (\f -> (f, map (\s ->
-                  let fn = getScenarioFunctionName s
-                  in (Left s, case lookup fn out of Just r -> toStepResults r s; _ -> [])) (_feature_scenarios f))) features
+                results :: Report = map (\f ->
+                  ( f
+                  , map (\s ->
+                          let fn = getScenarioFunctionName s
+                          in (Left s, case lookup fn out of Just r -> toStepResults r s; _ -> []))
+                        (_feature_scenarios f)
+                    <>
+                      mconcat
+                      (catMaybes
+                       (map (\outline@(Outline examples scenario) -> do
+                         (example, _) <- List.uncons examples
+                         (_header, exData) <- List.uncons (_examples_table example)
+                         Just $ flip fmap (zip [(1::Int)..] exData) $ \(index, _) ->
+                           let fn = getOutlineRowFunctionName index outline
+                           in ( Right outline
+                              , case lookup fn out of
+                                  Just r -> toStepResults r scenario
+                                  Nothing -> []
+                              ))
+                        (_feature_outlines f)))
+                  )) features
               logNotice $ renderReport results
               let success = testsSucceeded results
               logNotice $ reportSummary results
