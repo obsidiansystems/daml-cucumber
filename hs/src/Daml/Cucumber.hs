@@ -285,7 +285,7 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              (ec, stdout, stderr) <- liftIO $ readProcessWithExitCode "daml" ["test", "--files", testFile] ""
+              (ec, stdout, stderr) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
               let
                 out = fmapMaybe (damlTestResultLine $ T.pack testFile) $ T.lines $ T.pack stdout
                 toStepResults b s = if b
