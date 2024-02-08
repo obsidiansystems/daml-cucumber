@@ -6,6 +6,7 @@ module Daml.Cucumber
 
 import Control.Arrow (first)
 import Control.Exception (SomeException(..), catch)
+import Control.Lens ((^.), _3, _2)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Log
@@ -288,14 +289,14 @@ runTestSuite opts = do
               (ec, stdout, stderr) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
               let
                 out = fmapMaybe (damlTestResultLine $ T.pack testFile) $ T.lines $ T.pack stdout
-                toStepResults b s = if b
-                  then map (,StepSucceeded) (_scenario_steps s)
-                  else map (,StepFailed "") (_scenario_steps s)
-                results :: Report = map (\f ->
+                toStepResults fn b s = if b
+                  then map (,fn,StepSucceeded) (_scenario_steps s)
+                  else map (,fn,StepFailed "") (_scenario_steps s)
+                damlTestResults :: Report = map (\f ->
                   ( f
                   , map (\s ->
                           let fn = getScenarioFunctionName s
-                          in (Left s, case lookup fn out of Just r -> toStepResults r s; _ -> []))
+                          in (Left s, case lookup fn out of Just r -> toStepResults fn r s; _ -> []))
                         (_feature_scenarios f)
                     <>
                       mconcat
@@ -307,29 +308,36 @@ runTestSuite opts = do
                            let fn = getOutlineRowFunctionName index outline
                            in ( Right outline
                               , case lookup fn out of
-                                  Just r -> toStepResults r scenario
+                                  Just r -> toStepResults fn r scenario
                                   Nothing -> []
                               ))
                         (_feature_outlines f)))
                   )) features
-              logNotice $ renderReport results
-              let success = testsSucceeded results
-              logNotice $ reportSummary results
-              case ec of
-                ExitSuccess -> logInfo $ "All tests passed!"
-                _ -> logExitFailure $ case out of
-                  [] -> "Tests failed to run. Check for errors in your application code."
-                  _ -> "Tests failed"
-              -- result' <- runTestLspSession damlLocation testFile logLsp $ fmap damlFuncName $ damlFunctions result
-              -- case result' of
-              --   Left err -> logExitFailure ("LSP session failed: " <> err)
-              --   Right testResults -> do
-              --     success <- evaluateResults definedSteps testResults features
-              --     when (not $ Set.null missingSteps) $ do
-              --       let msg = T.pack $ unlines $
-              --             "Missing steps:" : map prettyPrintStep (Set.toList missingSteps)
-              --       logWarning msg
-              --     when (not success) $ liftIO exitFailure
+                failedThings = squash $ testFailures damlTestResults
+                functionsToRerun :: [Text] = Set.toList $ Set.fromList $ fmap (^._2) $ concatMap snd $ failedThings
+              logDebug $ T.unlines functionsToRerun
+              -- logDebug $ T.pack $ show damlTestResults
+              -- logNotice $ renderReport damlTestResults
+              -- TODO
+              Right lspResults <- runTestLspSession damlLocation testFile logLsp functionsToRerun
+              let
+                lspReport = report definedSteps lspResults features
+              logNotice $ renderReport lspReport
+              let
+                combineResult :: (Step, Text, StepReport) -> (Step, Text, StepReport) -> (Step, Text, StepReport)
+                combineResult (stp, fn, r) (stp', fn', r') = (stp, fn, case r' of
+                          StepDidNotRun -> r
+                          _ -> r')
+                combineReports :: Report -> Report -> Report
+                combineReports r1 r2 = 
+                  List.zipWith (\(f, xs) (_, ys) -> (f, zipWith (\(s, stps) (_, stps') -> (s, zipWith combineResult stps stps')) xs ys)) r1 r2
+                finalReport = combineReports damlTestResults lspReport
+                finish r = do
+                  logNotice $ renderReport r
+                  let success = testsSucceeded r
+                  logNotice $ reportSummary r
+                  when (not success) $ liftIO exitFailure
+              finish finalReport
             False -> do
               if generateOnly
                 then do
@@ -338,6 +346,12 @@ runTestSuite opts = do
                 else do
                   logExitFailure $ T.pack $ unlines $
                     "Missing steps:" : map prettyPrintStep (toList missingSteps)
+
+generateOutlineFunctionNames :: Outline -> Maybe [Text]
+generateOutlineFunctionNames = \outline@(Outline examples scenario) -> do
+ (example, _) <- List.uncons examples
+ (_header, exData) <- List.uncons (_examples_table example)
+ Just $ flip fmap (zip [(1::Int)..] exData) $ \(index, _) -> getOutlineRowFunctionName index outline
 
 damlTestResultLine
   :: Text -- ^ Test file
@@ -361,7 +375,10 @@ evaluateResults definedSteps testResults features = do
   pure success
 
 testsSucceeded :: Report -> Bool
-testsSucceeded r = all (==StepSucceeded) $ fmap snd $ squash $ squash r
+testsSucceeded r = all (==StepSucceeded) $ fmap (^._3)  $ squash $ squash r
+
+testFailures :: Report -> Report
+testFailures = filterReport (\case StepFailed _ -> True; _ -> False)
 
 reportSummary :: Report -> Text
 reportSummary r =
@@ -397,7 +414,7 @@ filterReport f inputList =
     , let bsWithMatchingD =
             [ (b, csWithMatchingD)
             | (b, cs) <- bs
-            , let csWithMatchingD = [(c, d) | (c, d) <- cs, f d]
+            , let csWithMatchingD = [(c, fn, d) | (c, fn, d) <- cs, f d]
             , not (null csWithMatchingD)
             ]
     , not (null bsWithMatchingD)]
@@ -406,7 +423,7 @@ data StepReport = StepSucceeded | StepFailed Text | StepDidNotRun
   deriving (Show, Eq)
 
 -- | We aren't using a Map here to preserve the ordering
-type Report = [(Feature, [(Either Scenario Outline, [(Step, StepReport)])])]
+type Report = [(Feature, [(Either Scenario Outline, [(Step, Text, StepReport)])])]
 
 report
   :: Set Step
@@ -426,10 +443,10 @@ report definedSteps testResults features =
       )
    in resultMap
   where
-    getScenarioResults :: Scenario -> [(Step, StepReport)]
+    getScenarioResults :: Scenario -> [(Step, Text, StepReport)]
     getScenarioResults = getResults id id getScenarioFunctionName
 
-    getOutlineResults :: Outline -> [[(Step, StepReport)]]
+    getOutlineResults :: Outline -> [[(Step, Text, StepReport)]]
     getOutlineResults outline = mconcat $
       ffor (_outline_examples outline) $ \ex -> do
         (headerRow, values) <- maybeToList $ List.uncons (_examples_table ex)
@@ -437,7 +454,7 @@ report definedSteps testResults features =
           let formatStep = foldr (.) id $ fmap (\(h, v) step -> step { _step_body = T.replace ("<"<>h<>">") v (_step_body step) }) $ zip headerRow vals
            in getResults formatStep (_outline_scenario . snd) (uncurry getOutlineRowFunctionName) (index, outline)
 
-    getResults :: (Step -> Step) -> (a -> Scenario) -> (a -> Text) -> a -> [(Step, StepReport)]
+    getResults :: (Step -> Step) -> (a -> Scenario) -> (a -> Text) -> a -> [(Step, Text, StepReport)]
     getResults formatStep getScenario getFunctionName a =
       let
         Scenario _ steps = getScenario a
@@ -446,7 +463,7 @@ report definedSteps testResults features =
         resultMap = scenarioResultMap a
         getResult = flip Map.lookup resultMap
       in
-        flip map steps $ \stp -> (formatStep stp,) $
+        flip map steps $ \stp -> (formatStep stp,fname,) $
           case getResult (T.pack $ prettyPrintStep stp) of
             Just True -> StepSucceeded
             Just False -> StepFailed errors
@@ -461,7 +478,7 @@ renderReport :: Report -> Text
 renderReport r = T.unlines $ fmap (T.unlines . fmap T.unlines) $
   ffor r $ \(f, ss) ->
     ([_feature_name f] :) $ ffor ss $ \(s, stps) ->
-      (("  Scenario: " <> _scenario_name (either id _outline_scenario s)) :) $ ffor stps $ \(stp, result) ->
+      (("  Scenario: " <> _scenario_name (either id _outline_scenario s)) :) $ ffor stps $ \(stp, _, result) ->
         ("    " <> (T.pack $ show $ _step_keyword stp) <> " " <> _step_body stp) <> renderResult result
   where
     renderResult = (" => " <>) . \case
