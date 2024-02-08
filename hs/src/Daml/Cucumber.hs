@@ -1,6 +1,7 @@
 module Daml.Cucumber
   ( Opts(..)
   , start
+  , test
   ) where
 
 import Control.Arrow (first)
@@ -50,6 +51,7 @@ import Text.Casing
 import Text.Parsec.Error qualified as Parsec
 import Text.Parsec.Pos qualified as Parsec
 import Text.Printf
+import System.Process
 
 -- | daml-cucumber configuration
 data Opts = Opts
@@ -244,6 +246,24 @@ logExitFailure reason = do
   logError reason
   liftIO exitFailure
 
+test :: IO ()
+test = do
+  let opts = Opts
+        ("../example" :| [])
+        "../example"
+        False
+        False
+        True
+        False
+        False
+  withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
+    runLoggingT (test opts) $ \msg -> case msgSeverity msg of
+      Debug | _opts_verbose opts || _opts_logLsp opts -> stdoutHandler (renderLogMessage msg)
+      Debug -> pure ()
+      _ -> stdoutHandler (renderLogMessage msg)
+  where
+    test = runTestSuite
+
 runTestSuite :: Opts -> Log IO ()
 runTestSuite opts = do
   let Opts featureLocation damlLocation allowMissing generateOnly _ logLsp _ = opts
@@ -265,16 +285,33 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              result' <- runTestLspSession damlLocation testFile logLsp $ fmap damlFuncName $ damlFunctions result
-              case result' of
-                Left err -> logExitFailure ("LSP session failed: " <> err)
-                Right testResults -> do
-                  success <- evaluateResults definedSteps testResults features
-                  when (not $ Set.null missingSteps) $ do
-                    let msg = T.pack $ unlines $
-                          "Missing steps:" : map prettyPrintStep (Set.toList missingSteps)
-                    logWarning msg
-                  when (not success) $ liftIO exitFailure
+              (ec, stdout, stderr) <- liftIO $ readProcessWithExitCode "daml" ["test", "--files", testFile] ""
+              let
+                out = fmapMaybe (damlTestResultLine $ T.pack testFile) $ T.lines $ T.pack stdout
+                toStepResults b s = if b
+                  then map (,StepSucceeded) (_scenario_steps s)
+                  else map (,StepFailed "") (_scenario_steps s)
+                results :: Report = map (\f -> (f, map (\s ->
+                  let fn = getScenarioFunctionName s
+                  in (Left s, case lookup fn out of Just r -> toStepResults r s; _ -> [])) (_feature_scenarios f))) features
+              logNotice $ renderReport results
+              let success = testsSucceeded results
+              logNotice $ reportSummary results
+              case ec of
+                ExitSuccess -> logInfo $ "All tests passed!"
+                _ -> logExitFailure $ case out of
+                  [] -> "Tests failed to run. Check for errors in your application code."
+                  _ -> "Tests failed"
+              -- result' <- runTestLspSession damlLocation testFile logLsp $ fmap damlFuncName $ damlFunctions result
+              -- case result' of
+              --   Left err -> logExitFailure ("LSP session failed: " <> err)
+              --   Right testResults -> do
+              --     success <- evaluateResults definedSteps testResults features
+              --     when (not $ Set.null missingSteps) $ do
+              --       let msg = T.pack $ unlines $
+              --             "Missing steps:" : map prettyPrintStep (Set.toList missingSteps)
+              --       logWarning msg
+              --     when (not success) $ liftIO exitFailure
             False -> do
               if generateOnly
                 then do
@@ -284,13 +321,29 @@ runTestSuite opts = do
                   logExitFailure $ T.pack $ unlines $
                     "Missing steps:" : map prettyPrintStep (toList missingSteps)
 
+damlTestResultLine
+  :: Text -- ^ Test file
+  -> Text -- ^ daml test output line
+  -> Maybe (Text, Bool) -- ^ Scenario function name and whether it passed
+damlTestResultLine testFile ln =
+  let
+    strings = T.splitOn ":" ln
+    fromResult txt = "ok" `T.isPrefixOf` T.strip txt
+  in case strings of
+      [srcFile, functionName, result] | srcFile == testFile ->
+        Just $ (functionName, fromResult result)
+      _ -> Nothing
+
 evaluateResults :: MonadIO m => Set Step -> Map Text ([Text], Text) -> [Feature] -> Log m Bool
 evaluateResults definedSteps testResults features = do
   let r = report definedSteps testResults features
   logNotice $ renderReport r
-  let success = all (==StepSucceeded) $ fmap snd $ squash $ squash r
+  let success = testsSucceeded r
   logNotice $ reportSummary r
   pure success
+
+testsSucceeded :: Report -> Bool
+testsSucceeded r = all (==StepSucceeded) $ fmap snd $ squash $ squash r
 
 reportSummary :: Report -> Text
 reportSummary r =
@@ -313,7 +366,7 @@ reportSummary r =
       [ if numFailingFeatures == 0 then "Tests Passed \9989" else "Tests Failed \10060"
       , "  " <> summaryLine "Features:  " totalFeatures numFailingFeatures
       , "  " <> summaryLine "Scenarios: " totalScenarios numFailingScenarios
-      , "  " <> summaryLine "Steps:     " totalSteps numFailingSteps
+      -- , "  " <> summaryLine "Steps:     " totalSteps numFailingSteps
       ]
 
 squash :: [(a, [b])] -> [b]
@@ -332,7 +385,7 @@ filterReport f inputList =
     , not (null bsWithMatchingD)]
 
 data StepReport = StepSucceeded | StepFailed Text | StepDidNotRun
-  deriving (Eq)
+  deriving (Show, Eq)
 
 -- | We aren't using a Map here to preserve the ordering
 type Report = [(Feature, [(Either Scenario Outline, [(Step, StepReport)])])]
@@ -395,7 +448,7 @@ renderReport r = T.unlines $ fmap (T.unlines . fmap T.unlines) $
   where
     renderResult = (" => " <>) . \case
       StepSucceeded -> successColor "OK"
-      StepFailed err -> errorColor $ "FAILED\n" <> renderStrict (formatError err)
+      StepFailed err -> errorColor $ "FAILED" <> if T.null err then "" else "\n" <> renderStrict (formatError err)
       StepDidNotRun -> warningColor "SKIPPED"
     errorColor = wrapSGRCode [SetColor Foreground Dull Red]
     warningColor = wrapSGRCode [SetColor Foreground Vivid Yellow]
@@ -529,7 +582,8 @@ isScenarioRunnable definedSteps scenario = all (flip Set.member definedSteps) (_
 
 makeStepMapping :: DamlFile -> Map Step StepFunc
 makeStepMapping file =
-  mconcat $ fmapMaybe (\d -> flip Map.singleton (StepFunc (damlFilePath file) (definitionName d)) <$> definitionStep d) $ damlFileDefinitions file
+  mconcat $ fforMaybe (damlFileDefinitions file) $ \d ->
+    flip Map.singleton (StepFunc (damlFilePath file) (definitionName d)) <$> definitionStep d
 
 prettyPrintStep :: Step -> String
 prettyPrintStep (Step key body) = show key <> " " <> T.unpack body
