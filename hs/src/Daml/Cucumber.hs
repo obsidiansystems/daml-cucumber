@@ -467,7 +467,8 @@ generateDamlSource definedSteps stepMapping features = do
               fnames <- fmap mconcat $ for (_scenario_steps scenario) $ \step -> do
                 case Map.lookup step stepMapping of
                   Nothing -> pure []
-                  Just (StepFunc _file fname) -> do
+                  Just (StepFunc file fname) -> do
+                    modify $ addImport $ T.pack file
                     let parameterNames = parseStepParameterNames (_step_body step)
                         parameters = fmap (T.pack . show) $ catMaybes $ flip Map.lookup value <$> parameterNames
                         fnameAndArgs = T.unwords (fname : parameters)
