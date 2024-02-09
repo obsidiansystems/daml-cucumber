@@ -291,6 +291,22 @@ runTestSuite opts = do
                 toStepResults fn b s = if b
                   then map (,fn,StepSucceeded) (_scenario_steps s)
                   else map (,fn,StepFailed "") (_scenario_steps s)
+
+                outlineFormatStep :: Outline -> (Step -> Step)
+                outlineFormatStep outline = foldr (.) id $ mconcat $ mconcat $
+                  ffor (_outline_examples outline) $ \ex -> do
+                    (headerRow, values) <- maybeToList $ List.uncons (_examples_table ex)
+                    ffor (zip [(1::Int)..] values) $ \(index, vals) ->
+                      let exampleData = zip headerRow vals
+                      in fmap (\(h, v) step -> step { _step_body = T.replace ("<"<>h<>">") v (_step_body step) }) exampleData
+
+                formatOutlineSteps :: (Feature, [(Either Scenario Outline, [(Step, Text, StepReport)])]) -> (Feature, [(Either Scenario Outline, [(Step, Text, StepReport)])])
+                formatOutlineSteps (f, scenarios) = (,) f $ ffor scenarios $ \case
+                  (Right outline, steps) ->
+                    let formatStep = outlineFormatStep outline
+                     in (Right outline, fmap (\(s,b,c) -> (formatStep s, b, c)) steps)
+                  xs -> xs
+
                 damlTestResults :: Report = map (\f ->
                   ( f
                   , map (\s ->
@@ -305,9 +321,10 @@ runTestSuite opts = do
                          (_header, exData) <- List.uncons (_examples_table example)
                          Just $ flip fmap (zip [(1::Int)..] exData) $ \(index, _) ->
                            let fn = getOutlineRowFunctionName index outline
+                               formatStep = outlineFormatStep outline
                            in ( Right outline
                               , case lookup fn out of
-                                  Just r -> toStepResults fn r scenario
+                                  Just r -> fmap (\(s, a, b) -> (formatStep s, a, b)) $ toStepResults fn r scenario
                                   Nothing -> []
                               ))
                         (_feature_outlines f)))
@@ -339,7 +356,7 @@ runTestSuite opts = do
                             combineReports :: Report -> Report -> Report
                             combineReports r1 r2 =
                               List.zipWith (\(f, xs) (_, ys) -> (f, zipWith (\(s, stps) (_, stps') -> (s, zipWith combineResult stps stps')) xs ys)) r1 r2
-                            finalReport = combineReports damlTestResults lspReport
+                            finalReport = formatOutlineSteps <$> combineReports damlTestResults lspReport
                           finish finalReport
             False -> do
               if generateOnly
