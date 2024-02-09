@@ -1,12 +1,11 @@
 module Daml.Cucumber
   ( Opts(..)
   , start
-  , test
   ) where
 
 import Control.Arrow (first)
 import Control.Exception (SomeException(..), catch)
-import Control.Lens ((^.), _3, _2)
+import Control.Lens ((^.), _2, _3)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Log
@@ -48,11 +47,11 @@ import System.FSNotify qualified as FS
 import System.FilePath hiding (hasExtension)
 import System.IO
 import System.Info qualified as Sys
+import System.Process
 import Text.Casing
 import Text.Parsec.Error qualified as Parsec
 import Text.Parsec.Pos qualified as Parsec
 import Text.Printf
-import System.Process
 
 -- | daml-cucumber configuration
 data Opts = Opts
@@ -247,8 +246,8 @@ logExitFailure reason = do
   logError reason
   liftIO exitFailure
 
-test :: IO ()
-test = do
+_test :: IO ()
+_test = do
   let opts = Opts
         ("../example" :| [])
         "../example"
@@ -258,24 +257,24 @@ test = do
         False
         False
   withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
-    runLoggingT (test opts) $ \msg -> case msgSeverity msg of
+    runLoggingT (test' opts) $ \msg -> case msgSeverity msg of
       Debug | _opts_verbose opts || _opts_logLsp opts -> stdoutHandler (renderLogMessage msg)
       Debug -> pure ()
       _ -> stdoutHandler (renderLogMessage msg)
   where
-    test = runTestSuite
+    test' = runTestSuite
 
 runTestSuite :: Opts -> Log IO ()
 runTestSuite opts = do
   let Opts featureLocation damlLocation allowMissing generateOnly _ logLsp _ = opts
   getProjectFiles damlLocation featureLocation >>= \case
     Left err -> logExitFailure $ T.pack err
-    Right f@(Files featureFiles damlFiles damlyaml) -> do
+    Right feat@(Files featureFiles damlFiles damlyaml) -> do
       logDebug $ T.unlines $
         "Found feature files:" : map T.pack featureFiles
       logDebug $ T.unlines $
         "Found daml files:" : map T.pack damlFiles
-      mscript <- generateTest f
+      mscript <- generateTest feat
       case mscript of
         Left err -> logExitFailure err
         Right (Test result definedSteps missingSteps features) -> do
@@ -286,9 +285,9 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              (ec, stdout, stderr) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
+              (ec, damlTestStdout, _) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
               let
-                out = fmapMaybe (damlTestResultLine $ T.pack testFile) $ T.lines $ T.pack stdout
+                out = fmapMaybe (damlTestResultLine $ T.pack testFile) $ T.lines $ T.pack damlTestStdout
                 toStepResults fn b s = if b
                   then map (,fn,StepSucceeded) (_scenario_steps s)
                   else map (,fn,StepFailed "") (_scenario_steps s)
@@ -315,29 +314,35 @@ runTestSuite opts = do
                   )) features
                 failedThings = squash $ testFailures damlTestResults
                 functionsToRerun :: [Text] = Set.toList $ Set.fromList $ fmap (^._2) $ concatMap snd $ failedThings
-              logDebug $ T.unlines functionsToRerun
-              -- logDebug $ T.pack $ show damlTestResults
-              -- logNotice $ renderReport damlTestResults
-              -- TODO
-              Right lspResults <- runTestLspSession damlLocation testFile logLsp functionsToRerun
-              let
-                lspReport = report definedSteps lspResults features
-              logNotice $ renderReport lspReport
-              let
-                combineResult :: (Step, Text, StepReport) -> (Step, Text, StepReport) -> (Step, Text, StepReport)
-                combineResult (stp, fn, r) (stp', fn', r') = (stp, fn, case r' of
-                          StepDidNotRun -> r
-                          _ -> r')
-                combineReports :: Report -> Report -> Report
-                combineReports r1 r2 = 
-                  List.zipWith (\(f, xs) (_, ys) -> (f, zipWith (\(s, stps) (_, stps') -> (s, zipWith combineResult stps stps')) xs ys)) r1 r2
-                finalReport = combineReports damlTestResults lspReport
-                finish r = do
-                  logNotice $ renderReport r
-                  let success = testsSucceeded r
-                  logNotice $ reportSummary r
-                  when (not success) $ liftIO exitFailure
-              finish finalReport
+              case (ec, damlTestResults) of
+                (ExitFailure _, []) -> logExitFailure "Tests failed to run. Please check for errors in your daml application code."
+                _ -> do
+                  let
+                    finish r = do
+                      logNotice $ renderReport r
+                      let success = testsSucceeded r
+                      logNotice $ reportSummary r
+                      when (not success) $ liftIO exitFailure
+                  case functionsToRerun of
+                    [] -> finish damlTestResults
+                    _ -> do
+                      lspResults <- runTestLspSession damlLocation testFile logLsp functionsToRerun
+                      case lspResults of
+                        Left err -> logExitFailure $ "Tests failed to run: " <> err
+                        Right lspResults' -> do
+                          let
+                            lspReport = report definedSteps lspResults' features
+                          logNotice $ renderReport lspReport
+                          let
+                            combineResult :: (Step, Text, StepReport) -> (Step, Text, StepReport) -> (Step, Text, StepReport)
+                            combineResult (stp, fn, r) (_stp', _fn', r') = (stp, fn, case r' of
+                                      StepDidNotRun -> r
+                                      _ -> r')
+                            combineReports :: Report -> Report -> Report
+                            combineReports r1 r2 =
+                              List.zipWith (\(f, xs) (_, ys) -> (f, zipWith (\(s, stps) (_, stps') -> (s, zipWith combineResult stps stps')) xs ys)) r1 r2
+                            finalReport = combineReports damlTestResults lspReport
+                          finish finalReport
             False -> do
               if generateOnly
                 then do
@@ -346,12 +351,6 @@ runTestSuite opts = do
                 else do
                   logExitFailure $ T.pack $ unlines $
                     "Missing steps:" : map prettyPrintStep (toList missingSteps)
-
-generateOutlineFunctionNames :: Outline -> Maybe [Text]
-generateOutlineFunctionNames = \outline@(Outline examples scenario) -> do
- (example, _) <- List.uncons examples
- (_header, exData) <- List.uncons (_examples_table example)
- Just $ flip fmap (zip [(1::Int)..] exData) $ \(index, _) -> getOutlineRowFunctionName index outline
 
 damlTestResultLine
   :: Text -- ^ Test file
@@ -365,14 +364,6 @@ damlTestResultLine testFile ln =
       [srcFile, functionName, result] | srcFile == testFile ->
         Just $ (functionName, fromResult result)
       _ -> Nothing
-
-evaluateResults :: MonadIO m => Set Step -> Map Text ([Text], Text) -> [Feature] -> Log m Bool
-evaluateResults definedSteps testResults features = do
-  let r = report definedSteps testResults features
-  logNotice $ renderReport r
-  let success = testsSucceeded r
-  logNotice $ reportSummary r
-  pure success
 
 testsSucceeded :: Report -> Bool
 testsSucceeded r = all (==StepSucceeded) $ fmap (^._3)  $ squash $ squash r
@@ -401,7 +392,7 @@ reportSummary r =
       [ if numFailingFeatures == 0 then "Tests Passed \9989" else "Tests Failed \10060"
       , "  " <> summaryLine "Features:  " totalFeatures numFailingFeatures
       , "  " <> summaryLine "Scenarios: " totalScenarios numFailingScenarios
-      -- , "  " <> summaryLine "Steps:     " totalSteps numFailingSteps
+      , "  " <> summaryLine "Steps:     " totalSteps numFailingSteps
       ]
 
 squash :: [(a, [b])] -> [b]
