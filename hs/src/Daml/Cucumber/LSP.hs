@@ -1,6 +1,7 @@
 {-# Language RankNTypes #-}
 module Daml.Cucumber.LSP
   ( runTestLspSession
+  , damlPath
   ) where
 
 import Control.Applicative
