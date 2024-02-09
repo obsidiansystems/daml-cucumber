@@ -7,16 +7,16 @@ module Daml.Cucumber.Daml.Parse
   , parseDamlFile
   ) where
 
-import Reflex (fmapMaybe)
-import Control.Lens
+import Control.Applicative
+import Control.Lens (makePrisms, preview)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Applicative
 import Daml.Cucumber.Daml.Parser
 import Daml.Cucumber.Daml.Tokenizer
 import Daml.Cucumber.Types
 import Data.Text (Text)
 import qualified Data.Text as T
+import Reflex (fmapMaybe)
 
 data DamlFile = DamlFile
   { damlFilePath :: FilePath
@@ -148,10 +148,6 @@ parseDefinition = do
   _ <- accept (==Colon)
   t <- parseTypeSig ident'
   pure $ Definition ident' mStepBind t
-
-parseFileDefinitions :: FilePath -> IO (Maybe [Definition])
-parseFileDefinitions path = do
-  parseFile path $ parseAll parseDefinition
 
 parseDamlNode :: Parser DamlNode
 parseDamlNode =

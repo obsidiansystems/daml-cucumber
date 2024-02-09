@@ -1,7 +1,7 @@
 {-# Language PolyKinds #-}
 module Daml.Cucumber.LSP
   ( runTestLspSession
-  , test
+  , damlPath
   ) where
 
 import Prelude hiding (log)
@@ -413,8 +413,8 @@ mkInitPayload pid =
       |]
     pidStr = tShow pid
 
-test :: FilePath -> Log IO ()
-test p = do
+_test :: FilePath -> Log IO ()
+_test p = do
   handler <- askLogHandler
   let
     log :: MonadIO m' =>  Text -> m' ()
