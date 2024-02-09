@@ -332,8 +332,6 @@ runTestSuite opts = do
                         Right lspResults' -> do
                           let
                             lspReport = report definedSteps lspResults' features
-                          logNotice $ renderReport lspReport
-                          let
                             combineResult :: (Step, Text, StepReport) -> (Step, Text, StepReport) -> (Step, Text, StepReport)
                             combineResult (stp, fn, r) (_stp', _fn', r') = (stp, fn, case r' of
                                       StepDidNotRun -> r
