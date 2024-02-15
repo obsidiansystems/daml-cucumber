@@ -20,4 +20,12 @@ The [example.feature](example.feature) file contains a feature specification wri
     Then an asset is created owned by the issuer
 ```
 
-In [daml/Test.daml](daml/Test.daml), we've implemented each step as a separate function. You can identify the function corresponding to each step by looking at the comment above the function. For
+In [daml/Test.daml](daml/Test.daml), we've implemented each step as a separate function. You can identify the function corresponding to each step by looking at the comment above the function. For example:
+
+```
+-- Given an issuer party
+given_an_issuer : Cucumber Ctx ()
+given_an_issuer = do
+  p <- liftScript $ allocateParty "issuer"
+  modify $ \ctx -> ctx { issuer = Some p }
+```
