@@ -38,6 +38,7 @@ library
     Daml.Cucumber.LSP
     Daml.Cucumber.Parse
     Daml.Cucumber.Types
+    Daml.Package.Generate
 
   build-depends:
     , abacate                >=0.0     && <0.1
@@ -67,6 +68,9 @@ library
     , text                   >=1.2.4   && <1.3
     , unix                   >=2.7.2   && <2.8
     , yaml                   >=0.11    && <0.12
+    , shake
+    , algebraic-graphs
+    , vector
 
   if flag(use-static-which)
     build-depends:

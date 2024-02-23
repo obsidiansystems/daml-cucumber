@@ -1,6 +1,7 @@
 module Daml.Cucumber
   ( Opts(..)
   , start
+  , findDamlSources
   ) where
 
 import Control.Arrow (first)
@@ -171,7 +172,7 @@ data Test = Test
   }
 
 getUsedContextTypes :: DamlFile -> Set (FilePath, Text)
-getUsedContextTypes (DamlFile fp typesyns definitions) =
+getUsedContextTypes (DamlFile fp _moduleHeader typesyns definitions _imports) =
   foldr getContextTypeUse mempty (fmap getDefinitionType definitions <> fmap getTypeSynonymType typesyns)
   where
     getContextTypeUse t b = case t of
@@ -188,7 +189,7 @@ getContextTypeDefinitionFile :: Text -> [DamlFile] -> Maybe FilePath
 getContextTypeDefinitionFile typeName files =
   safeHead $ fmap damlFilePath $ filter filterFunc files
   where
-    filterFunc (DamlFile _ _typesyns defs) = any isDefForType defs
+    filterFunc (DamlFile _ _moduleHeader _typesyns defs _imports) = any isDefForType defs
     isDefForType :: Definition -> Bool
     isDefForType (Definition name _ _) | typeName == name = True
     isDefForType _ = False

@@ -4,6 +4,8 @@ module Daml.Cucumber.Daml.Parse
   , Type(..)
   , TypeSig(..)
   , TypeSynonym(..)
+  , ModuleHeader(..)
+  , ImportedModule(..)
   , parseDamlFile
   ) where
 
@@ -20,9 +22,12 @@ import Reflex (fmapMaybe)
 
 data DamlFile = DamlFile
   { damlFilePath :: FilePath
+  , damlModuleHeader :: ModuleHeader
   , damlFileTypeSynonyms :: [TypeSynonym]
   , damlFileDefinitions :: [Definition]
+  , damlFileImports :: [ImportedModule]
   }
+  deriving (Eq, Show)
 
 data Definition = Definition
   { definitionName :: Text
@@ -34,6 +39,14 @@ data Definition = Definition
 data FunctionType = FunctionType
   { inputs :: [Type]
   , output :: Type
+  }
+  deriving (Eq, Show)
+
+newtype ImportedModule = ImportedModule { unImportedModule :: Text }
+  deriving (Eq, Show)
+
+data ModuleHeader = ModuleHeader
+  { moduleHeader_name :: Text
   }
   deriving (Eq, Show)
 
@@ -55,6 +68,8 @@ data DamlNode
   | DamlMultilineComment Text
   | DamlTypeSynonym TypeSynonym
   | DamlComment Text
+  | DamlImport ImportedModule
+  | DamlModuleHeader ModuleHeader
   deriving (Eq, Show)
 
 makePrisms ''DamlNode
@@ -122,6 +137,24 @@ takeUntil f = do
       eat
       (token :) <$> takeUntil f
 
+parseImport :: Parser ImportedModule
+parseImport = do
+  _ <- accept (== ImportKeyword)
+  (x:xs) <- idents ""
+  [m] <- pure $ case x of
+    "qualified" -> takeWhile (/= "as") xs
+    _ -> x : takeWhile (/= "qualified") xs
+  pure $ ImportedModule m
+
+parseModuleHeader :: Parser ModuleHeader
+parseModuleHeader = do
+  _ <- accept (==ModuleKeyword)
+  [m] <- idents ""
+  _ <- takeUntil (==WhereKeyword)
+  pure $ ModuleHeader
+    { moduleHeader_name = m
+    }
+
 parseStepBinding :: Parser Step
 parseStepBinding = do
   comment <- parseComment
@@ -155,6 +188,8 @@ parseDamlNode =
   <|> (DamlTypeSynonym <$> parseTypeSynonym)
   <|> (DamlDefinition <$> parseDefinition)
   <|> (DamlComment . tokensToText <$> parseComment)
+  <|> (DamlImport <$> parseImport)
+  <|> (DamlModuleHeader <$> parseModuleHeader)
 
 parseDamlNodes :: MonadIO m => FilePath -> m (Maybe [DamlNode])
 parseDamlNodes path = liftIO $ do
@@ -166,4 +201,6 @@ parseDamlFile path = do
   let
     defs = nodes >>= pure . fmapMaybe (preview _DamlDefinition)
     typeSyns = nodes >>= pure . fmapMaybe (preview _DamlTypeSynonym)
-  pure $ DamlFile path <$> typeSyns <*> defs
+    imports = nodes >>= pure . fmapMaybe (preview _DamlImport)
+    Just [moduleHeader] = nodes >>= pure . fmapMaybe (preview _DamlModuleHeader)
+  pure $ DamlFile path <$> Just moduleHeader <*> typeSyns <*> defs <*> imports

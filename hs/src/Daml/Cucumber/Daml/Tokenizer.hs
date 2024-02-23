@@ -19,6 +19,11 @@ data Token
   | Colon
   | LineBreak
   | TypeKeyword
+  | ImportKeyword
+  | ModuleKeyword
+  | OpenParens
+  | CloseParens
+  | WhereKeyword
   deriving (Eq, Show)
 
 tokenToText :: Token -> Text
@@ -34,6 +39,11 @@ tokenToText = \case
   BeginMultiLine -> "{-"
   EndMultiLine -> "-}"
   TypeKeyword -> "type"
+  ImportKeyword -> "import"
+  ModuleKeyword -> "module"
+  OpenParens -> "("
+  CloseParens -> ")"
+  WhereKeyword -> "where"
 
 tokenize :: Text -> [Token]
 tokenize input
@@ -51,10 +61,15 @@ tokenize input
   | T.isPrefixOf "=>" token = TypeArrow : tokenize (T.drop 2 token)
   | T.isPrefixOf "{-" token = BeginMultiLine : tokenize (T.drop 2 token)
   | T.isPrefixOf "-}" token = EndMultiLine : tokenize (T.drop 2 token)
+  | T.isPrefixOf "(" token = OpenParens : tokenize (T.drop 1 token)
+  | T.isPrefixOf ")" token = CloseParens : tokenize (T.drop 1 token)
   | otherwise = case ident of
       "" -> tokenize $ T.drop 1 token
       "do" -> Do : tokenize rest
       "type" -> TypeKeyword : tokenize rest
+      "import" -> ImportKeyword : tokenize rest
+      "where" -> WhereKeyword : tokenize rest
+      "module" -> ModuleKeyword : tokenize rest
       _ -> Identifier ident : tokenize rest
   where
     token = T.dropWhile (flip elem defaultSpaces) input
