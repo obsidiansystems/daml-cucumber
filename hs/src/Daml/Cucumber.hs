@@ -288,6 +288,8 @@ runTestSuite opts = do
               (ec, damlTestStdout, damlTestStderr) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
               case ec of
                 ExitFailure _ -> do
+                  -- The "Test Summary" text only appears if "daml test" was able to run
+                  -- the tests (even if they failed).
                   if "Test Summary" `T.isInfixOf` T.pack damlTestStdout
                     then pure ()
                     else logExitFailure $
