@@ -1,6 +1,6 @@
 cabal-version:   3.0
 name:            daml-cucumber
-version:         1.0.0.0
+version:         1.0.1.0
 synopsis:        Cucumber testing with daml script
 description:
   Parse cucumber gherkin tests, associate them with daml script tests, and run
