@@ -285,7 +285,15 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              (ec, damlTestStdout, _) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
+              (ec, damlTestStdout, damlTestStderr) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
+              case ec of
+                ExitFailure _ -> do
+                  if "Test Summary" `T.isInfixOf` T.pack damlTestStdout
+                    then pure ()
+                    else logExitFailure $
+                      "Failed to run daml test:\n" <> T.pack damlTestStderr
+
+                _ -> pure ()
               let
                 out = fmapMaybe (damlTestResultLine $ T.pack testFile) $ T.lines $ T.pack damlTestStdout
                 toStepResults fn b s = if b
@@ -300,7 +308,9 @@ runTestSuite opts = do
                       let exampleData = zip headerRow vals
                       in fmap (\(h, v) step -> step { _step_body = T.replace ("<"<>h<>">") v (_step_body step) }) exampleData
 
-                formatOutlineSteps :: (Feature, [(Either Scenario Outline, [(Step, Text, StepReport)])]) -> (Feature, [(Either Scenario Outline, [(Step, Text, StepReport)])])
+                formatOutlineSteps
+                  :: (Feature, [(Either Scenario Outline, [(Step, Text, StepReport)])])
+                  -> (Feature, [(Either Scenario Outline, [(Step, Text, StepReport)])])
                 formatOutlineSteps (f, scenarios) = (,) f $ ffor scenarios $ \case
                   (Right outline, steps) ->
                     let formatStep = outlineFormatStep outline
