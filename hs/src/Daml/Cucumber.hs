@@ -285,7 +285,9 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              (ec, damlTestStdout, damlTestStderr) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
+              let damlProc = proc damlPath ["test", "--files", testFile]
+                  damlProcRelativeToProject = damlProc { cwd = Just damlLocation }
+              (ec, damlTestStdout, damlTestStderr) <- liftIO $ readCreateProcessWithExitCode damlProcRelativeToProject ""
               case ec of
                 ExitFailure _ -> do
                   -- The "Test Summary" text only appears if "daml test" was able to run
