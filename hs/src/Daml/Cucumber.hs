@@ -43,6 +43,7 @@ import System.Console.ANSI
 import System.Directory qualified as Dir
 import System.Directory.Contents qualified as Dir
 import System.Directory.Contents.Zipper qualified as Z
+import System.Environment (getEnvironment)
 import System.Exit
 import System.FSNotify qualified as FS
 import System.FilePath hiding (hasExtension)
@@ -287,7 +288,10 @@ runTestSuite opts = do
           case shouldRunTests of
             True -> do
               writeDamlScript testFile result
-              (ec, damlTestStdout, damlTestStderr) <- liftIO $ readProcessWithExitCode damlPath ["test", "--files", testFile] ""
+              environment <- liftIO getEnvironment
+              let setDamlProject path process = process { env = Just (("DAML_PROJECT", path) : environment) }
+                  damlProc = setDamlProject damlLocation $ proc damlPath ["test", "--files", testFile]
+              (ec, damlTestStdout, damlTestStderr) <- liftIO $ readCreateProcessWithExitCode damlProc ""
               case ec of
                 ExitFailure _ -> do
                   -- The "Test Summary" text only appears if "daml test" was able to run
