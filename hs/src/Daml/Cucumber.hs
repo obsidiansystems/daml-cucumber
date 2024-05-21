@@ -20,6 +20,7 @@ import Daml.Cucumber.Parse
 import Daml.Cucumber.Types
 import Daml.Cucumber.Utils
 import Data.Char
+import Data.Either
 import Data.Foldable
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty(..))
@@ -281,7 +282,8 @@ runTestSuite opts = do
         Right (Test result definedSteps missingSteps features) -> do
           logInfo "Running tests..."
           let
-            testFile = (damlLocation </> damlYaml_source damlyaml </> "Generated.daml")
+            testFileRelativeToProjectRoot = damlYaml_source damlyaml </> "Generated.daml"
+            testFile = damlLocation </> testFileRelativeToProjectRoot
             shouldRunTests = (allowMissing || Set.null missingSteps) && not generateOnly
           case shouldRunTests of
             True -> do
@@ -301,7 +303,8 @@ runTestSuite opts = do
 
                 _ -> pure ()
               let
-                out = fmapMaybe (damlTestResultLine $ T.pack testFile) $ T.lines $ T.pack damlTestStdout
+                damlStdoutLines = T.lines $ T.pack damlTestStdout
+                (failedToParsed, out) = partitionEithers $ fmap (damlTestResultLine $ T.pack testFileRelativeToProjectRoot) damlStdoutLines
                 toStepResults fn b s = if b
                   then map (,fn,StepSucceeded) (_scenario_steps s)
                   else map (,fn,StepFailed "") (_scenario_steps s)
@@ -347,6 +350,7 @@ runTestSuite opts = do
                   )) features
                 failedThings = squash $ testFailures damlTestResults
                 functionsToRerun :: [Text] = Set.toList $ Set.fromList $ fmap (^._2) $ concatMap snd $ failedThings
+              logDebug $ T.unlines $ "Parsed line failures:" : failedToParsed
               case (ec, damlTestResults) of
                 (ExitFailure _, []) -> logExitFailure "Tests failed to run. Please check for errors in your daml application code."
                 _ -> do
@@ -384,17 +388,20 @@ runTestSuite opts = do
                     "Missing steps:" : map prettyPrintStep (toList missingSteps)
 
 damlTestResultLine
-  :: Text -- ^ Test file
-  -> Text -- ^ daml test output line
-  -> Maybe (Text, Bool) -- ^ Scenario function name and whether it passed
+  :: Text
+  -- ^ Test file relative to daml project root
+  -> Text
+  -- ^ daml test output line
+  -> Either Text (Text, Bool)
+  -- ^ Either failed parsed line contents or scenario function name and whether it passed
 damlTestResultLine testFile ln =
   let
     strings = T.splitOn ":" ln
     fromResult txt = "ok" `T.isPrefixOf` T.strip txt
   in case strings of
       [srcFile, functionName, result] | srcFile == testFile ->
-        Just $ (functionName, fromResult result)
-      _ -> Nothing
+        Right $ (functionName, fromResult result)
+      invalid -> Left ln
 
 testsSucceeded :: Report -> Bool
 testsSucceeded r = all (==StepSucceeded) $ fmap (^._3)  $ squash $ squash r
