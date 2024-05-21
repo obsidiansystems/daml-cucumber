@@ -3,6 +3,7 @@
 ## 1.0.2.0
 
 * [Fix daml test line parsing](https://github.com/obsidiansystems/daml-cucumber/pull/44)
+* [Ensure daml test is always invoked from project root](https://github.com/obsidiansystems/daml-cucumber/pull/43)
 
 ## 1.0.1.0
 
