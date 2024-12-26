@@ -27,9 +27,7 @@ newtype Cucumber s a = Cucumber
  deriving (Functor, Applicative, Action, ActionState s, ActionFail, CanAssert)
 
 instance LiftScript (Cucumber s) where
-  liftScript action = Cucumber (liftScript action)
+  liftScript = Cucumber . liftScript
 
 runCucumber : Default s => Cucumber s a -> Script a
-runCucumber (Cucumber testAction) = do
-  (a, _) <- runState def testAction
-  pure a
+runCucumber = fmap fst . runState def . unCucumber

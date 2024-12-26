@@ -16,9 +16,7 @@ class LiftScript m where
   liftScript : Script a -> m a
 
 instance LiftScript Script where
-  liftScript action = action
+  liftScript = identity
 
-instance (Applicative m, LiftScript m, Action m) => LiftScript (StateT s m) where
-  liftScript action = StateT $ \s -> do
-    a <- liftScript action
-    pure (a, s)
+instance (Applicative m, LiftScript m) => LiftScript (StateT s m) where
+  liftScript action = StateT $ liftA2 (,) (liftScript action) . pure
