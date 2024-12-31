@@ -1,12 +1,14 @@
 module Daml.Cucumber
   ( Opts(..)
   , start
+  , runWithLogger
   ) where
 
 import Control.Arrow (first)
 import Control.Exception (SomeException(..), catch)
 import Control.Lens ((^.), _2, _3)
 import Control.Monad
+import Control.Monad.Catch (MonadMask)
 import Control.Monad.IO.Class
 import Control.Monad.Log
 import Control.Monad.Log.Colors (wrapSGRCode)
@@ -29,6 +31,7 @@ import Data.Map qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
+import Data.String (IsString)
 import Data.Text qualified as T
 import Data.Text (Text)
 import Data.Text.IO qualified as T
@@ -67,13 +70,26 @@ data Opts = Opts
   }
   deriving (Show)
 
-start :: Opts -> IO ()
-start opts = do
+-- | Run an action in a context that allows logging
+runWithLogger
+  :: (MonadIO m, MonadMask m, Monoid a, Pretty a, IsString a)
+  => Bool
+  -- ^ Verbose (enable debug logging)
+  -> LoggingT (WithSeverity a) m b
+  -- ^ Action to run with logging capabilities
+  -> m b
+runWithLogger verbose go = do
   withFDHandler defaultBatchingOptions stdout 0.4 80 $ \stdoutHandler ->
-    runLoggingT runner $ \msg -> case msgSeverity msg of
-      Debug | _opts_verbose opts || _opts_logLsp opts -> stdoutHandler (renderLogMessage msg)
+    runLoggingT go $ \msg -> case msgSeverity msg of
+      Debug | verbose -> stdoutHandler (renderLogMessage msg)
       Debug -> pure ()
       _ -> stdoutHandler (renderLogMessage msg)
+
+-- | Start daml-cucumber
+start :: Opts -> IO ()
+start opts = do
+  let verbose = _opts_verbose opts || _opts_logLsp opts
+  runWithLogger verbose runner
   where
     runner = do
       case _opts_watch opts of
@@ -313,7 +329,7 @@ runTestSuite opts = do
                 outlineFormatStep outline = foldr (.) id $ mconcat $ mconcat $
                   ffor (_outline_examples outline) $ \ex -> do
                     (headerRow, values) <- maybeToList $ List.uncons (_examples_table ex)
-                    ffor (zip [(1::Int)..] values) $ \(index, vals) ->
+                    ffor (zip [(1::Int)..] values) $ \(_index, vals) ->
                       let exampleData = zip headerRow vals
                       in fmap (\(h, v) step -> step { _step_body = T.replace ("<"<>h<>">") v (_step_body step) }) exampleData
 

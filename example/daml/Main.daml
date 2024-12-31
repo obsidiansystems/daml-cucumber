@@ -44,3 +44,4 @@ setup = script do
 
   submit bob do
     exerciseCmd bobTV Give with newOwner = alice
+  pure bobTV
