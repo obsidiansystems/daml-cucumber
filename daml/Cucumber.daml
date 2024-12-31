@@ -34,10 +34,10 @@ newtype Cucumber s a = Cucumber
   Action,
   ActionState s,
   ActionFail,
-  CanAssert,
-  CanAbort,
+  ActionThrow,
   ActionCatch,
-  ActionThrow)
+  CanAssert,
+  CanAbort)
 
 instance LiftScript (Cucumber s) where
   liftScript = Cucumber . liftScript

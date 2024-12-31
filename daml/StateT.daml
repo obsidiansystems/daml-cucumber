@@ -11,7 +11,6 @@ module StateT where
 
 import DA.Action.State.Class
 import DA.Exception
-import DA.Functor (($>))
 import DA.Tuple (dupe, first)
 
 data StateT s m a = StateT
@@ -34,19 +33,19 @@ instance Action m => Action (StateT s m) where
     runStateT (k a) s'
 
 instance ActionFail m => ActionFail (StateT s m) where
-  fail m = StateT $ (fail m $>) . (undefined, )
+  fail m = StateT $ const (fail m)
 
 instance ActionThrow m => ActionThrow (StateT s m) where
-  throw e = StateT $ (throw e $>) . (undefined, )
+  throw e = StateT $ const (throw e)
 
 instance ActionCatch m => ActionCatch (StateT s m) where
   _tryCatch f g = StateT $ \s -> _tryCatch ((`runStateT` s) . f) (fmap (`runStateT` s) . g)
 
 instance CanAssert m => CanAssert (StateT s m) where
-  assertFail m = StateT $ (assertFail m $>) . (undefined, )
+  assertFail m = StateT $ const (assertFail m)
 
 instance CanAbort m => CanAbort (StateT s m) where
-  abort t = StateT $ (abort t $>) . (undefined, )
+  abort t = StateT $ const (abort t)
 
 state
   : Applicative m
