@@ -1,8 +1,6 @@
-{-# LANGUAGE UndecidableInstances #-}
 {-|
 Module      : Cucumber
 Description : Cucumber testing for daml
-
 Copyright   : (c) Obsidian Systems LLC, 2024
 License     : BSD-3-Clause
 Maintainer  : maintainer@obsidian.systems
@@ -10,7 +8,6 @@ Maintainer  : maintainer@obsidian.systems
 Support library for daml-cucumber. Use this library to implement
 cucumber/gherkin steps in daml, and use the daml-cucumber tool to run them.
 -}
-
 module Cucumber
   ( module Cucumber
   , module LiftScript
