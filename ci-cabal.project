@@ -2,3 +2,9 @@ packages:
   hs/
 
 allow-newer: abacate:*, reflex-process:*, reflex-vty:*
+
+-- abacate (Gherkin parser) - not on Hackage
+source-repository-package
+  type: git
+  location: https://github.com/obsidiansystems/abacate.git
+  tag: c3a00a9d77057961971c07299126f5d63708fde1
