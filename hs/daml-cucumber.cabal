@@ -1,6 +1,6 @@
 cabal-version:   3.0
 name:            daml-cucumber
-version:         1.0.2.0
+version:         1.0.2.1
 synopsis:        Cucumber testing with daml script
 description:
   Parse cucumber gherkin tests, associate them with daml script tests, and run
@@ -40,22 +40,22 @@ library
     Daml.Cucumber.Types
 
   build-depends:
-    , abacate                >=0.0     && <0.1
-    , aeson                  >=2.1.1   && <2.2
-    , ansi-terminal          >=0.11    && <1.1
+    , abacate                >=0.0     && <0.2
+    , aeson                  >=2.1.1   && <2.3
+    , ansi-terminal          >=0.11    && <1.3
     , base                   >=4.14    && <5
     , lens                   >=5       && <6
-    , bytestring             >=0.10.12 && <0.11
+    , bytestring             >=0.10    && <0.13
     , casing                 >=0.1.4   && <0.2
-    , containers             >=0.6.5   && <0.7
+    , containers             >=0.6.5   && <0.9
     , directory              >=1.3.6   && <1.4
     , directory-contents     >=0.2     && <0.3
-    , filepath               >=1.4.2   && <1.5
+    , filepath               >=1.4.2   && <1.6
     , fsnotify               >=0.4     && <0.5
     , logging-effect         >=1.3     && <1.5
     , logging-effect-colors  >=0.1     && <0.2
-    , mtl                    >=2.2.2   && <2.3
-    , neat-interpolation     >=0.4     && <0.5
+    , mtl                    >=2.2.2   && <2.4
+    , neat-interpolation     >=0.4     && <0.6
     , parsec                 >=3.1.14  && <3.2
     , prettyprinter          >=1.7     && <1.8
     , process                >=1.6.13  && <1.7
@@ -64,8 +64,8 @@ library
     , reflex-process         >=0.3.3   && <0.4
     , tagsoup                >=0.14.8  && <0.15
     , temporary              >=1.3     && <1.4
-    , text                   >=1.2.4   && <1.3
-    , unix                   >=2.7.2   && <2.8
+    , text                   >=1.2.4   && <2.3
+    , unix                   >=2.7.2   && <2.9
     , yaml                   >=0.11    && <0.12
 
   if flag(use-static-which)
@@ -96,7 +96,7 @@ executable daml-cucumber
     , aeson
     , base
     , daml-cucumber
-    , optparse-applicative  >=0.16.1 && <0.17
+    , optparse-applicative  >=0.16.1 && <0.19
   other-modules: Paths_daml_cucumber
 
   ghc-options:      -O -threaded

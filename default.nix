@@ -2,8 +2,7 @@ let
   gitInfo = builtins.fetchGit { url = "file://${./.}"; };
   isDirty = gitInfo.shortRev == "0000000";
   rev = if isDirty then "dirty" else gitInfo.shortRev;
-  platform = import ./nix/reflex-platform {};
-  pkgs = platform.nixpkgs;
+  pkgs = import ./nix/nixpkgs {};
   versions = builtins.map (x: let
     version = builtins.replaceStrings [ ".json" ] [ "" ] x;
     versionS = builtins.replaceStrings [ "." ] [ "" ] version;
