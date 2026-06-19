@@ -211,9 +211,9 @@ $(nix-build -A pushScript)/bin/docker-push-generated
 
 ## About Obsidian Systems
 
-daml-cucumber is built and maintained by **[Obsidian Systems](https://obsidian.systems)**. We provide frontier engineering for high-assurance systems, and we're long-time stewards of open-source Nix and Haskell tooling, including [Obelisk](https://github.com/obsidiansystems/obelisk), [Reflex](https://reflex-frp.org/), and [nix-thunk](https://github.com/obsidiansystems/nix-thunk). We also build production Daml and Canton applications.
+daml-cucumber is built and maintained by **[Obsidian Systems](https://obsidian.systems)**. We provide frontier engineering for high-assurance systems: we build production software in Haskell, Daml, Canton, and Nix, and we're long-time stewards of open-source tooling like [Obelisk](https://github.com/obsidiansystems/obelisk), [Reflex](https://reflex-frp.org/), and [nix-thunk](https://github.com/obsidiansystems/nix-thunk).
 
-If you're working with Daml, Canton, or Nix and want a partner to help design, build, or ship it, we'd love to hear from you.
+If you're working with Daml, Canton, Nix, or Haskell and want a partner to help design, build, or ship it, we'd love to hear from you.
 
 - Website: <https://obsidian.systems>
 - Blog: <https://blog.obsidian.systems>
