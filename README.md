@@ -1,21 +1,23 @@
+<div align="center">
+
 # daml-cucumber 🥒
-[![Haskell Programming Language](https://img.shields.io/badge/language-Haskell-blue.svg)](http://www.haskell.org)
-[![BSD3 License](http://img.shields.io/badge/license-BSD3-brightgreen.svg)](https://github.com/obsidiansystems/obelisk/blob/master/LICENSE) [![Built with Nix](https://img.shields.io/static/v1?logo=nixos&logoColor=white&label=&message=Built%20with%20Nix&color=41439a)](https://nixos.org)
 
-[Behavior-driven-development](https://cucumber.io/docs/bdd/) for Daml script using Cucumber's [Gherkin](https://cucumber.io/docs/gherkin/reference/) specification language.
+### Behavior-driven development for Daml.
 
+Write your tests in plain-language [Gherkin](https://cucumber.io/docs/gherkin/reference/) feature files, implement each step as a [Daml Script](https://docs.daml.com/daml-script/index.html) action, and get a per-step pass/fail report.
 
+[![Haskell](https://img.shields.io/badge/language-Haskell-blue.svg)](http://www.haskell.org) [![Built with Daml](https://img.shields.io/badge/Daml-1D345D)](https://docs.daml.com) [![Built with Nix](https://img.shields.io/static/v1?logo=nixos&logoColor=white&label=&message=Built%20with%20Nix&color=41439a)](https://nixos.org) [![Obsidian](https://img.shields.io/badge/Obsidian-Systems-white)](https://obsidian.systems) [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
+
+</div>
 
 https://github.com/obsidiansystems/daml-cucumber/assets/7432518/f13cd205-8342-43df-81fc-ce23b4518679
 
-
-
-This repository includes both a Daml library and an executable that reads gherkin .feature files and invokes your Daml test script with the feature as input.
+This repository provides both the Daml library you import to write step implementations and the executable that reads your `.feature` files and drives your Daml test script.
 
 ## How to use this library
 
 ### Add daml-cucumber to your project
-The daml-cucumber daml library is found in the `./daml` folder of this project. You can build and import `daml-cucumber-<version>.dar`, into your project as one of the [`data-dependencies` in your daml.yaml file](https://docs.daml.com/tools/assistant-build.html#add-a-package-to-a-multi-package-configuration).
+The daml-cucumber Daml library lives in the `./daml` folder of this project. Build it and import the resulting `daml-cucumber-<version>.dar` into your project as one of the [`data-dependencies` in your daml.yaml file](https://docs.daml.com/tools/assistant-build.html#add-a-package-to-a-multi-package-configuration).
 
 You can build the daml-cucumber daml library with the following commands:
 
@@ -81,7 +83,7 @@ thenContractIsCreated = do
 
 ```
 
-A full project example (using the daml skeleton app) is available in the [example folder](./example).
+A full project example (using the Daml skeleton app) is available in the [example folder](./example).
 
 ### Sharing scenario state
 
@@ -94,10 +96,10 @@ Launch daml-cucumber to run tests like so:
 ```bash
 daml-cucumber \
   --features <path-to-your-feature-files> \
-  --source <path-to-daml-files-implementing-steps>
-  ```
+  --source <path-to-your-daml-project>
+```
 
-daml-cucumber will run all of the scenarios in the specified feature file and produce a report in your terminal that looks like the following:
+daml-cucumber runs every scenario in the given feature files and prints a report to your terminal that looks like this:
 
 ```
 Feature: Example
@@ -107,16 +109,27 @@ Feature: Example
     Then Contract X is created => Failed: Not implemented
 ```
 
-daml-cucumber will also notify you of missing steps, if the `--allow-missing` flag is not set, missing steps is an error.
+Unless you pass `--allow-missing`, a step in a feature file with no matching implementation is treated as an error.
+
+### Command-line options
+
+| Option | Description |
+| --- | --- |
+| `--features`, `-f` | A `.feature` file, or a directory of them. Repeatable; at least one is required. |
+| `--source` | The Daml project directory (the one containing `daml.yaml`). |
+| `--watch` | Re-run automatically when feature or Daml files change. |
+| `--generate-only` | Write `Generated.daml` without running the tests (see below). |
+| `--allow-missing` | Don't fail when a step has no implementation. |
+| `--verbose`, `-v` | Verbose output. |
 
 ### Inspecting test results with VSCode
 
-daml-cucumber generates a daml file that can be opened in VSCode or evaluated with `daml test`. It is generated whenever daml-cucumber runs, but you can also generate it at any time with the following command:
+daml-cucumber generates a Daml file that can be opened in VSCode or evaluated with `daml test`. It is generated whenever daml-cucumber runs, but you can also generate it at any time with the following command:
 
 ```bash
-daml-cucumber
+daml-cucumber \
   --features <path-to-your-feature-files> \
-  --source <path-to-daml-files-implementing-steps> \
+  --source <path-to-your-daml-project> \
   --generate-only
 ```
 
@@ -144,7 +157,7 @@ nix-build
 
 ## Working on daml-cucumber
 
-From the project root, run `nix-shell` to get a shell with the `daml` command, `daml sdk`, `ghci`, `cabal`, and necessary haskell packages installed.
+From the project root, run `nix-shell` to get a shell with the `daml` command, `daml sdk`, `ghci`, `cabal`, and necessary Haskell packages installed.
 
 Now you can run the cucumber tests:
 
@@ -196,6 +209,16 @@ to push all the containers you can run
 $(nix-build -A pushScript)/bin/docker-push-generated
 ```
 
-***
+## About Obsidian Systems
 
-Built by [Obsidian Systems](https://obsidian.systems).
+daml-cucumber is built and maintained by **[Obsidian Systems](https://obsidian.systems)**. We provide frontier engineering for high-assurance systems, and we're long-time stewards of open-source Nix and Haskell tooling, including [Obelisk](https://github.com/obsidiansystems/obelisk), [Reflex](https://reflex-frp.org/), and [nix-thunk](https://github.com/obsidiansystems/nix-thunk). We also build production Daml and Canton applications.
+
+If you're working with Daml, Canton, or Nix and want a partner to help design, build, or ship it, we'd love to hear from you.
+
+- Website: <https://obsidian.systems>
+- Blog: <https://blog.obsidian.systems>
+- GitHub: <https://github.com/obsidiansystems>
+
+## License
+
+daml-cucumber is released under the [BSD-3-Clause License](LICENSE), © 2024 Obsidian Systems LLC.
