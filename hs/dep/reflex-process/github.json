@@ -1,8 +1,8 @@
 {
   "owner": "reflex-frp",
   "repo": "reflex-process",
-  "branch": "aa/careful-handles",
+  "branch": "release/0.3.3.2",
   "private": false,
-  "rev": "b52256da0899ec852ca25a236e9642bc38f4529a",
-  "sha256": "0gyq3fr376a2xwlw6q8d7pdmz1b7s4ydv1700mn5lawr5jbq6vbk"
+  "rev": "9b0e452c24234ba0d67ab4b9d9183c220ceb2965",
+  "sha256": "0ig1v1sncgla5vm9vif2dfjfpmnlp6pg8jpw9cj49968v5sr47sc"
 }

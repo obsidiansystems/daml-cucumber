@@ -1,7 +1,8 @@
 {
   "owner": "obsidiansystems",
   "repo": "abacate",
+  "branch": "main",
   "private": false,
-  "rev": "2b94f2b79923a326e1f32b3ad16aabc4b0e79931",
-  "sha256": "03ncansyi39swdg99pq750m3a9fj9af40cxdrk7a003yi4d0q3rs"
+  "rev": "c3a00a9d77057961971c07299126f5d63708fde1",
+  "sha256": "01mj3q00hk8l9k67nl999nfva4glncx8806g5yz6m7kk7x96wdy1"
 }

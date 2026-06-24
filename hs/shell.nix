@@ -1,7 +1,6 @@
 {}:
 let
-  platform =  import ../nix/reflex-platform {};
-  pkgs = platform.nixpkgs;
+  pkgs = import ../nix/nixpkgs {};
 in
   pkgs.mkShell {
     name = "daml-cucumber-shell";
