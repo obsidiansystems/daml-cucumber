@@ -16,6 +16,7 @@ module Cucumber
   ) where
 
 import DA.Action.State.Class
+import DA.Exception
 import Daml.Script
 import Default
 import LiftScript
@@ -24,10 +25,22 @@ import StateT
 newtype Cucumber s a = Cucumber
   { unCucumber : StateT s Script a
   }
- deriving (Functor, Applicative, Action, ActionState s, ActionFail, CanAssert)
+ deriving (
+  Functor,
+  Applicative,
+  Action,
+  ActionState s,
+  ActionFail,
+  ActionThrow,
+  ActionCatch,
+  CanAssert,
+  CanAbort)
 
 instance LiftScript (Cucumber s) where
   liftScript = Cucumber . liftScript
+
+instance HasTime (Cucumber s) where
+  getTime = liftScript getTime
 
 runCucumber : Default s => Cucumber s a -> Script a
 runCucumber = fmap fst . runState def . unCucumber

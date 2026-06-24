@@ -10,7 +10,7 @@ State monads, passing an updatable state through a computation.
 module StateT where
 
 import DA.Action.State.Class
-import DA.Functor (($>))
+import DA.Exception
 import DA.Tuple (dupe, first)
 
 data StateT s m a = StateT
@@ -33,10 +33,19 @@ instance Action m => Action (StateT s m) where
     runStateT (k a) s'
 
 instance ActionFail m => ActionFail (StateT s m) where
-  fail m = StateT $ \s -> fail m $> (undefined, s)
+  fail = StateT . const . fail 
+
+instance ActionThrow m => ActionThrow (StateT s m) where
+  throw = StateT . const . throw
+
+instance ActionCatch m => ActionCatch (StateT s m) where
+  _tryCatch f g = StateT $ \s -> _tryCatch ((`runStateT` s) . f) (fmap (`runStateT` s) . g)
 
 instance CanAssert m => CanAssert (StateT s m) where
-  assertFail m = StateT $ \s -> assertFail m $> (undefined, s)
+  assertFail = StateT . const . assertFail
+
+instance CanAbort m => CanAbort (StateT s m) where
+  abort = StateT . const . abort
 
 state
   : Applicative m
